@@ -1,0 +1,72 @@
+# ====== Inference & Global Settings ======
+use_gpu : true
+gpuID : 0
+best_model_path_f : '../saved_model/4-28-18-17/epoch_0.pt'
+input_lenth : 0 # Input RPS lenth
+output_lenth : 40 # Output RPS lenth
+num_song : 10 # Number of songs
+
+# ====== Model & Training Hyperparameters ======
+exp_detail : 'd_model : 256 nhead : 8 num_layers : 8'
+num_workers : 0
+model_save_dir: '../saved_model'
+
+# dataset
+data_path : './data.pkl'
+train_pkl : '../../Datasets/wikifonia/train'
+val_pkl : '../../Datasets/wikifonia/val'
+test_pkl : '../../Datasets/wikifonia/test'
+
+# model
+seq_max : 256
+d_embed : 128
+d_model : 320
+nhead : 8
+num_layers : 8
+dropout : 0.2
+dim_feedforward: 1024
+self_mask_percent : 1
+rps_feat2idx_path : '../..//DataProcess/feat2idx_rps.pkl'
+
+# train
+lr : 0.0001
+optimizer : 'adamw'
+weight_decay : 0.0001
+batch_size : 16
+num_epochs : 100
+label_smoothing : 0.0
+label_smoothing_sigma : 0.5
+grad_clip_norm : 1.0
+lr_scheduler :
+    type : 'one_cycle'
+    max_lr : 0.0005
+    pct_start : 0.1
+    div_factor : 10.0
+    final_div_factor : 100.0
+    anneal_strategy : 'cos'
+    cycle_momentum : false
+
+# RPS Features
+rps_feature_all : [ 'bar','position','duration','rhythm_pattern','melody_contour','pitch_region']
+rps_feature_selected : ['global_pos','duration','rhythm_pattern','melody_contour']
+rps_feature_dict: {"global_pos": 2066,
+                   "duration": 35,
+                   "rhythm_pattern": 9,
+                   "melody_contour": 15,} 
+
+# Note Features
+note_feature_selected : ['bar','position','duration','pitch','velocity']
+note_feature_dim_dict: {'bar':129,
+                        'position':17,
+                        'duration':18,
+                        'pitch': 129,
+                        'velocity':129,}
+
+# inference weighting
+feature_loss_weights :
+    global_pos : 1.0
+    duration : 1.0
+    rhythm_pattern : 1.0
+    melody_contour : 1.0
+
+ntemperature : 1
