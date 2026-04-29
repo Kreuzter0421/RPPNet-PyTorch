@@ -15,7 +15,7 @@ Expected directory structure:
 
 import os
 
-from se_metric import compute_structure_error, list_midi_files
+from se_metric.examples.se_metric import compute_structure_error, list_midi_files
 
 
 def main() -> None:

@@ -1,13 +1,13 @@
 # ====== Inference & Global Settings ======
 use_gpu : true
 gpuID : 0
-best_model_path_f : '../saved_model/4-28-18-17/epoch_0.pt'
-input_lenth : 0 # Input RPS lenth
-output_lenth : 40 # Output RPS lenth
+best_model_path_f : '../saved_model/4-29-13-46/epoch_0.pt'
+input_lenth : 0 # Input RPP lenth
+output_lenth : 40 # Output RPP lenth
 num_song : 10 # Number of songs
 
 # ====== Model & Training Hyperparameters ======
-exp_detail : 'd_model : 256 nhead : 8 num_layers : 8'
+exp_detail : 'd_model : 320 nhead : 8 num_layers : 8'
 num_workers : 0
 model_save_dir: '../saved_model'
 
@@ -26,7 +26,7 @@ num_layers : 8
 dropout : 0.2
 dim_feedforward: 1024
 self_mask_percent : 1
-rps_feat2idx_path : '../..//DataProcess/feat2idx_rps.pkl'
+rpp_feat2idx_path : '../..//DataProcess/feat2idx_rpp.pkl'
 
 # train
 lr : 0.0001
@@ -46,10 +46,10 @@ lr_scheduler :
     anneal_strategy : 'cos'
     cycle_momentum : false
 
-# RPS Features
-rps_feature_all : [ 'bar','position','duration','rhythm_pattern','melody_contour','pitch_region']
-rps_feature_selected : ['global_pos','duration','rhythm_pattern','melody_contour']
-rps_feature_dict: {"global_pos": 2066,
+# RPP Features
+rpp_feature_all : [ 'bar','position','duration','rhythm_pattern','melody_contour','pitch_region']
+rpp_feature_selected : ['global_pos','duration','rhythm_pattern','melody_contour']
+rpp_feature_dict: {"global_pos": 2066,
                    "duration": 35,
                    "rhythm_pattern": 9,
                    "melody_contour": 15,} 

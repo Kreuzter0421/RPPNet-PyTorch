@@ -4,14 +4,14 @@ import torch
 from model.model import MidiDataset
 from torch.utils.data import DataLoader
 from torch.utils.data._utils.collate import default_collate
-from model.model import Graph2Seq
+from model.model import NoteTransformer
 import os
 from tqdm import tqdm
 import glob
 import datetime
 from torch.nn.utils import clip_grad_norm_
 
-def collate_graph2seq(batch):
+def collate_noteLevel(batch):
     keys = batch[0].keys()
     collated = {}
     for key in keys:
@@ -44,7 +44,7 @@ def build_feature_loss_masks(feature_names, first_note_mask):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Graph2Seq training")
+    parser = argparse.ArgumentParser(description="NoteTransformer training")
     parser.add_argument("--config", type=str,
                         default='../config/config.yaml',
                         help="Path to the YAML config file")
@@ -64,7 +64,7 @@ def evaluate(e, cfg, model, val_iter, device):
         loss_list = []
         for b, batch in enumerate(val_iter):
 
-            V = batch['rps_feat'].to(device)
+            V = batch['rpp_feat'].to(device)
             tgt = batch['note_feat'].to(device)
             tgt_gt = batch['note_feat_gt'].to(device)
             tgt_mask = batch['note_mask'].to(device)
@@ -106,7 +106,7 @@ def train(e, cfg, model, optimizer, train_iter, device, scheduler=None):
     grad_clip = float(cfg.get('grad_clip', 0.0) or 0.0)
     for b, batch in enumerate(train_iter):
 
-        V = batch['rps_feat'].to(device)
+        V = batch['rpp_feat'].to(device)
         tgt = batch['note_feat'].to(device)
         tgt_gt = batch['note_feat_gt'].to(device)
         tgt_mask = batch['note_mask'].to(device)
@@ -126,7 +126,7 @@ def train(e, cfg, model, optimizer, train_iter, device, scheduler=None):
 
         if torch.isnan(loss) or torch.isinf(loss):
             print(f"Invalid loss detected: {loss.item()}")
-            print(f"RPS Feat Stats: Min={V.min()}, Max={V.max()}, HasZero={(V==0).any()}, Shape={V.shape}")
+            print(f"RPP Feat Stats: Min={V.min()}, Max={V.max()}, HasZero={(V==0).any()}, Shape={V.shape}")
             print(f"Note Feat Stats: Min={tgt.min()}, Max={tgt.max()}, HasZero={(tgt==0).any()}, Shape={tgt.shape}")
             raise ValueError("Training interrupted due to NaN/Inf loss")
 
@@ -189,7 +189,7 @@ def main(args=None):
             f.write(f"# Resume {datetime.datetime.now().isoformat()} from {args.resume}\n")
 
     # Model
-    model = Graph2Seq(cfg=cfg).to(device)
+    model = NoteTransformer(cfg=cfg).to(device)
     total = sum([param.nelement() for param in model.parameters()])
     print("* Number of parameters: %.2fM *" % (total / 1e6))
 
@@ -208,14 +208,14 @@ def main(args=None):
     # Training dataloader: shuffle and (optionally) drop last partial batch for stable batch sizes
     train_dataloader_kwargs = dict(batch_size=cfg['batch_size'],
                                    drop_last=True,
-                                   collate_fn=collate_graph2seq,
+                                   collate_fn=collate_noteLevel,
                                    num_workers=num_workers,
                                    pin_memory=pin_memory,
                                    persistent_workers=persistent_workers)
     # Validation dataloader: do NOT shuffle and do NOT drop_last so validation covers all samples
     val_dataloader_kwargs = dict(batch_size=cfg['batch_size'],
                                  drop_last=False,
-                                 collate_fn=collate_graph2seq,
+                                 collate_fn=collate_noteLevel,
                                  num_workers=num_workers,
                                  pin_memory=pin_memory,
                                  persistent_workers=persistent_workers)
@@ -292,7 +292,7 @@ def main(args=None):
                 os.remove(file)
 
             # Save Model Val
-            torch.save(model.state_dict(), os.path.join(model_save_dir, 'Graph2seq_val_best.pt'))
+            torch.save(model.state_dict(), os.path.join(model_save_dir, 'NoteTransformer_val_best.pt'))
             torch.save({
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
@@ -302,7 +302,7 @@ def main(args=None):
             }, os.path.join(model_save_dir, 'checkpoint_val_best.pt'))
 
         # Save Model Val / checkpoint
-        torch.save(model.state_dict(), os.path.join(model_save_dir, 'Graph2seq_train_best.pt'))
+        torch.save(model.state_dict(), os.path.join(model_save_dir, 'NoteTransformer_train_best.pt'))
         torch.save({
             'epoch': epoch,
             'model_state_dict': model.state_dict(),
@@ -329,8 +329,8 @@ if __name__ == '__main__':
 #
 #     # # -------------------- [Test Encoder] --------------------#
 #     # encoder = EncoderGAT(cfg=cfg)
-#     # V = data['rps_feature_seq']
-#     # E = data['rps_edge_seq']
+#     # V = data['rpp_feature_seq']
+#     # E = data['rpp_edge_seq']
 #     # out = encoder(V,E)
 #     # print(out.shape)
 #
@@ -340,9 +340,9 @@ if __name__ == '__main__':
 #     # out = decoder(tgt=data['note_seq'],memory = memory,tgt_mask = data['note_mask'])
 #     # print(out,out.shape)
 #
-#     # -------------------- [Test Graph2Seq] --------------------#
-#     model= Graph2Seq(cfg=cfg)
-#     out = model(V=data['rps_feature_seq'],E=data['rps_edge_seq'],tgt=data['note_seq'],tgt_mask=data['note_mask'])
+#     # -------------------- [Test NoteTransformer] --------------------#
+#     model= NoteTransformer(cfg=cfg)
+#     out = model(V=data['rpp_feature_seq'],E=data['rpp_edge_seq'],tgt=data['note_seq'],tgt_mask=data['note_mask'])
 #     print(out,out.shape)
 #     loss = model.loss(predict=out,gt=data['note_seq_gt'])
 #     print(loss)

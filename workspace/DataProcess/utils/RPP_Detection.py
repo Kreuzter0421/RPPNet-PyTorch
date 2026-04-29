@@ -60,14 +60,14 @@ def print_cell(rhythm_cells):
         if rs[0][0].priority != 5:
             print("------------------------RS----------------------------")
 
-def get_rps_rhythm_type(rhythm_cells):
-    rps_rhythm_type = []
+def get_rpp_rhythm_type(rhythm_cells):
+    rpp_rhythm_type = []
     for rs in rhythm_cells:
         for cell in rs:
             if len(cell) >=1 :
-                rps_rhythm_type.append(cell_intensity_tags(cell)[0])
+                rpp_rhythm_type.append(cell_intensity_tags(cell)[0])
 
-    return rps_rhythm_type
+    return rpp_rhythm_type
 
 def cell_intensity_tags(cell):
     tags = []
@@ -115,7 +115,7 @@ class Note:
 
 
 
-class RPS_Detection:
+class RPP_Detection:
 
     def __init__(self, midi_path, resolution=480, grids=16):
         self.midi_path = midi_path
@@ -800,8 +800,8 @@ class RPS_Detection:
         with open(output_file_dir, "w") as f:
             f.write(file_name + "\n")
 
-            rps_dict = {}
-            rps_idx = 1
+            rpp_dict = {}
+            rpp_idx = 1
             for rs_idx in range(len(rhythm_cell_seg_notes_list)):
                 rs = rhythm_cell_seg_notes_list[rs_idx]
                 first_cell = rs[0]
@@ -811,23 +811,23 @@ class RPS_Detection:
                 
                 for cell in rs:
                     normalized_cell = cell_normalization(cell)
-                    in_rps_dict = False
-                    for rps_name in rps_dict.keys():
-                        if normalized_cell_compare(normalized_cell, rps_dict[rps_name]):
-                            curr_line = "{}: {}[".format(rps_name, len(cell))
+                    in_rpp_dict = False
+                    for rpp_name in rpp_dict.keys():
+                        if normalized_cell_compare(normalized_cell, rpp_dict[rpp_name]):
+                            curr_line = "{}: {}[".format(rpp_name, len(cell))
                             for idx in range(len(cell)):
                                 note = cell[idx]
                                 if idx != 0:
                                     curr_line += ", "
                                 curr_line += "note{}(start = {}, end = {})".format(idx + 1, note.start, note.end)
                             curr_line += "]"
-                            in_rps_dict = True
+                            in_rpp_dict = True
                             break
-                    if not in_rps_dict:
-                        rps_dict["RPS{}".format(rps_idx)] = normalized_cell
-                        rps_name = "RPS{}".format(rps_idx)
-                        rps_idx += 1
-                        curr_line = "{}: {}[".format(rps_name, len(cell))
+                    if not in_rpp_dict:
+                        rpp_dict["RPP{}".format(rpp_idx)] = normalized_cell
+                        rpp_name = "RPP{}".format(rpp_idx)
+                        rpp_idx += 1
+                        curr_line = "{}: {}[".format(rpp_name, len(cell))
                         for idx in range(len(cell)):
                             note = cell[idx]
                             if idx != 0:
@@ -858,15 +858,15 @@ class RPS_Detection:
         
         mido_obj.dump('result.mid')
 
-    def get_RPS_List(self, rhythm_cell_seg_notes_list):
-        RPS_list = []
+    def get_RPP_List(self, rhythm_cell_seg_notes_list):
+        RPP_list = []
         for bar in rhythm_cell_seg_notes_list:
             for RP in bar:
-                RPS_group = []
+                RPP_group = []
                 for item in RP:
-                    RPS_group.append(miditoolkit.Note(start=item.start, end=item.end, pitch=item.pitch, velocity=item.velocity))
-                RPS_list.append(RPS_group)
-        return RPS_list
+                    RPP_group.append(miditoolkit.Note(start=item.start, end=item.end, pitch=item.pitch, velocity=item.velocity))
+                RPP_list.append(RPP_group)
+        return RPP_list
     
     def get_skeleton_list(self, skeleton_note_list):
         notes = []
@@ -964,12 +964,12 @@ class RPS_Detection:
        
         rhythm_cell_seg_notes_list = self.rhythm_cell_segmentation(rhythm_seg_notes_list)
 
-        rps_list = self.get_RPS_List(rhythm_cell_seg_notes_list=rhythm_cell_seg_notes_list)
-        rps_rhythm_type = get_rps_rhythm_type(rhythm_cell_seg_notes_list)
+        rpp_list = self.get_RPP_List(rhythm_cell_seg_notes_list=rhythm_cell_seg_notes_list)
+        rpp_rhythm_type = get_rpp_rhythm_type(rhythm_cell_seg_notes_list)
 
         
 
-        return rps_list,rps_rhythm_type
+        return rpp_list,rpp_rhythm_type
 
 if __name__ == '__main__':
     rootdir = './melody/0.mid'
@@ -978,11 +978,11 @@ if __name__ == '__main__':
     file_name = os.path.basename(midi_path)
     dst_path = '.'
     
-    m = RPS_Detection(midi_path)
-    rps_list , rps_ryh = m.all_steps()
+    m = RPP_Detection(midi_path)
+    rpp_list , rpp_ryh = m.all_steps()
 
-    print(len(rps_list),len(rps_ryh))
-    print(rps_ryh)
+    print(len(rpp_list),len(rpp_ryh))
+    print(rpp_ryh)
 
 
     

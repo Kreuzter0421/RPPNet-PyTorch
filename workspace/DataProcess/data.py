@@ -5,8 +5,8 @@ from sklearn.model_selection import train_test_split
 import yaml
 import os
 from tqdm import tqdm
-from utils.Split_Rps import data_cleaner_batch
-from utils.Split_Rps import rps_divider
+from utils.Split_Rpp import data_cleaner_batch
+from utils.Split_Rpp import rpp_divider
 import glob
 import miditoolkit
 import traceback
@@ -14,25 +14,25 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from functools import partial
 
 Bar_min,Bar_max = 4,128
-Rps_min,Rps_max = 8,255
-Rps_token_max = 256      
+Rpp_min,Rpp_max = 8,255
+Rpp_token_max = 256      
 Note_min,Note_max = 16,1023
 Note_token_max = 1024
 
-RPS_EXPORT_FEATURES = ['bar','position','duration','rhythm_pattern','melody_contour','pitch_region']
+RPP_EXPORT_FEATURES = ['bar','position','duration','rhythm_pattern','melody_contour','pitch_region']
 
 
-def build_rps_start_vector(rps_feat2idx):
-    """Return a start token vector aligned with RPS_EXPORT_FEATURES."""
+def build_rpp_start_vector(rpp_feat2idx):
+    """Return a start token vector aligned with RPP_EXPORT_FEATURES."""
     start_vals = []
-    for feat in RPS_EXPORT_FEATURES:
-        mapping = rps_feat2idx.get(feat, {})
+    for feat in RPP_EXPORT_FEATURES:
+        mapping = rpp_feat2idx.get(feat, {})
         start_vals.append(mapping.get('<start>', 0))
     return np.array(start_vals)
 
 
 
-class RPS:
+class RPP:
     def __init__(self, bar, position, duration, rhythm_pattern, melody_contour, pitch_region, chord_quality, bass, root, tension, key_mode, tempo):
         self.bar = bar
         self.position = position
@@ -48,7 +48,7 @@ class RPS:
         self.tempo = tempo
 
 
-class RPSID():
+class RPPID():
     def __init__(self):
         self.bar = None
         self.position = None
@@ -61,7 +61,7 @@ class RPSID():
     @property
     def node_feat(self):
         values = []
-        for feat in RPS_EXPORT_FEATURES:
+        for feat in RPP_EXPORT_FEATURES:
             val = getattr(self, feat, None)
             if val is None:
                 val = 0
@@ -86,12 +86,12 @@ class NOTEID():
         return np.array([self.bar, self.position, self.duration,self.pitch,self.velocity])
 
 # Worker global variables
-_worker_rps_feat2idx = None
+_worker_rpp_feat2idx = None
 _worker_note_feat2idx = None
 
-def init_worker(rps_feat2idx, note_feat2idx):
-    global _worker_rps_feat2idx, _worker_note_feat2idx
-    _worker_rps_feat2idx = rps_feat2idx
+def init_worker(rpp_feat2idx, note_feat2idx):
+    global _worker_rpp_feat2idx, _worker_note_feat2idx
+    _worker_rpp_feat2idx = rpp_feat2idx
     _worker_note_feat2idx = note_feat2idx
 
 def process_general_midi_task(args):
@@ -102,7 +102,7 @@ def process_general_midi_task(args):
     status: None (success), 'skipped' (filtered), 'error_skip' (assertion), 'error' (exception)
     """
     midi, algorithm = args
-    rps_feat2idx = _worker_rps_feat2idx
+    rpp_feat2idx = _worker_rpp_feat2idx
     note_feat2idx = _worker_note_feat2idx
     RESOLUTION = 120
     
@@ -112,22 +112,22 @@ def process_general_midi_task(args):
         if end_bar < Bar_min: return None, 'skipped'
         if end_bar > Bar_max: return None, 'skipped'
         
-        note_list, rps_list = rps_divider(midipath=midi, algorithm=algorithm, need_log=True)
+        note_list, rpp_list = rpp_divider(midipath=midi, algorithm=algorithm, need_log=True)
 
         if note_list[-1].end // 1920 > 127: return None, 'skipped'
 
-        # bar & rps filtering
-        for i, rps in enumerate(rps_list):
-            if rps.start // 1920 + 1 > Bar_max:
-                rps_list = rps_list[:i]
+        # bar & rpp filtering
+        for i, rpp in enumerate(rpp_list):
+            if rpp.start // 1920 + 1 > Bar_max:
+                rpp_list = rpp_list[:i]
                 break
         
-        num_rps = len(rps_list)
-        if num_rps > Rps_max: rps_list = rps_list[:Rps_max]
-        if num_rps < Rps_min: return None, 'skipped'
+        num_rpp = len(rpp_list)
+        if num_rpp > Rpp_max: rpp_list = rpp_list[:Rpp_max]
+        if num_rpp < Rpp_min: return None, 'skipped'
 
         note_list = []
-        for rps in rps_list: note_list += rps.rps
+        for rpp in rpp_list: note_list += rpp.rpp
 
         for i, note in enumerate(note_list):
             if note.start // 1920 + 1 > Bar_max:
@@ -140,57 +140,57 @@ def process_general_midi_task(args):
 
         # Input Dict Construction
         cur_dict = {
-            "name": None, "condition": None, "rps_feat": None, "rps_feat_gt": None,
-            "rps_mask": None, "note_feat": None, "note_feat_gt": None, "note_mask": None
+            "name": None, "condition": None, "rpp_feat": None, "rpp_feat_gt": None,
+            "rpp_mask": None, "note_feat": None, "note_feat_gt": None, "note_mask": None
         }
 
-        # RPSID Construction
-        RPSID_list = [RPSID() for _ in range(len(rps_list))]
-        for i, rps in enumerate(rps_list):
-            cur_feat = str(rps.bar)
-            RPSID_list[i].bar = rps_feat2idx['bar'][cur_feat]
+        # RPPID Construction
+        RPPID_list = [RPPID() for _ in range(len(rpp_list))]
+        for i, rpp in enumerate(rpp_list):
+            cur_feat = str(rpp.bar)
+            RPPID_list[i].bar = rpp_feat2idx['bar'][cur_feat]
 
-            pos_step = rps.position // RESOLUTION
+            pos_step = rpp.position // RESOLUTION
             pos_step = max(0, min(pos_step, 16))
             cur_feat = str(pos_step)
-            if cur_feat not in rps_feat2idx['position']: cur_feat = '0'
-            RPSID_list[i].position = rps_feat2idx['position'][cur_feat]
+            if cur_feat not in rpp_feat2idx['position']: cur_feat = '0'
+            RPPID_list[i].position = rpp_feat2idx['position'][cur_feat]
 
-            dur_step = rps.duration // RESOLUTION
+            dur_step = rpp.duration // RESOLUTION
             dur_step = max(0, min(dur_step, 32))
             cur_feat = str(dur_step)
-            if cur_feat not in rps_feat2idx['duration']: cur_feat = '0'
-            RPSID_list[i].duration = rps_feat2idx['duration'][cur_feat]
+            if cur_feat not in rpp_feat2idx['duration']: cur_feat = '0'
+            RPPID_list[i].duration = rpp_feat2idx['duration'][cur_feat]
 
-            cur_feat = str(rps.rhythm_pattern)
-            RPSID_list[i].rhythm_pattern = rps_feat2idx['rhythm_pattern'][cur_feat]
+            cur_feat = str(rpp.rhythm_pattern)
+            RPPID_list[i].rhythm_pattern = rpp_feat2idx['rhythm_pattern'][cur_feat]
 
-            cur_feat = str(rps.melody_contour)
-            RPSID_list[i].melody_contour = rps_feat2idx['melody_contour'][cur_feat]
+            cur_feat = str(rpp.melody_contour)
+            RPPID_list[i].melody_contour = rpp_feat2idx['melody_contour'][cur_feat]
 
-            cur_feat = str(rps.pitch_region)
-            RPSID_list[i].pitch_region = rps_feat2idx['pitch_region'][cur_feat]
+            cur_feat = str(rpp.pitch_region)
+            RPPID_list[i].pitch_region = rpp_feat2idx['pitch_region'][cur_feat]
 
-        # rps_feat & Pad
-        start_vector = build_rps_start_vector(rps_feat2idx)
-        cur_rps_feat = [start_vector]
-        for rps in RPSID_list:
-            cur_rps_feat.append(rps.node_feat)
-        cur_rps_feat = np.array(cur_rps_feat)
-        cur_rps_feat_gt = cur_rps_feat[1:, :]
+        # rpp_feat & Pad
+        start_vector = build_rpp_start_vector(rpp_feat2idx)
+        cur_rpp_feat = [start_vector]
+        for rpp in RPPID_list:
+            cur_rpp_feat.append(rpp.node_feat)
+        cur_rpp_feat = np.array(cur_rpp_feat)
+        cur_rpp_feat_gt = cur_rpp_feat[1:, :]
 
-        pad_lenth = max(Rps_token_max - cur_rps_feat.shape[0], 0)
-        pad_lenth_gt = max(Rps_token_max - cur_rps_feat.shape[0]+1, 0)
+        pad_lenth = max(Rpp_token_max - cur_rpp_feat.shape[0], 0)
+        pad_lenth_gt = max(Rpp_token_max - cur_rpp_feat.shape[0]+1, 0)
 
-        cur_dict['rps_feat'] = np.pad(cur_rps_feat, ((0, pad_lenth), (0, 0)), 'constant', constant_values=0)
-        cur_dict['rps_feat_gt'] = np.pad(cur_rps_feat_gt, ((0, pad_lenth_gt), (0, 0)), 'constant', constant_values=0)
+        cur_dict['rpp_feat'] = np.pad(cur_rpp_feat, ((0, pad_lenth), (0, 0)), 'constant', constant_values=0)
+        cur_dict['rpp_feat_gt'] = np.pad(cur_rpp_feat_gt, ((0, pad_lenth_gt), (0, 0)), 'constant', constant_values=0)
         
-        rps_mask_1 = np.ones(cur_rps_feat.shape[0])
+        rpp_mask_1 = np.ones(cur_rpp_feat.shape[0])
         if pad_lenth > 0:
-            rps_mask_0 = np.zeros(pad_lenth)
-            cur_dict['rps_mask'] = np.concatenate((rps_mask_1, rps_mask_0))
+            rpp_mask_0 = np.zeros(pad_lenth)
+            cur_dict['rpp_mask'] = np.concatenate((rpp_mask_1, rpp_mask_0))
         else:
-            cur_dict['rps_mask'] = rps_mask_1
+            cur_dict['rpp_mask'] = rpp_mask_1
 
         cur_dict['name'] = os.path.basename(midi)
         cur_dict['condition'] = np.array(0)
@@ -243,7 +243,7 @@ def process_general_midi_task(args):
         return None, 'error'
 
 # metadata -> standard data (General)
-def get_standard_data_General_Pad(midi_root, RPS_FEAT2IDX, NOTE_FEAT2IDX, output_root='../Datasets/pretrain', split_dict_path=None,
+def get_standard_data_General_Pad(midi_root, RPP_FEAT2IDX, NOTE_FEAT2IDX, output_root='../Datasets/pretrain', split_dict_path=None,
                                   algorithm=None):
     """
     Directly splits data into train/val/test and saves them in chunks to avoid OOM.
@@ -317,7 +317,7 @@ def get_standard_data_General_Pad(midi_root, RPS_FEAT2IDX, NOTE_FEAT2IDX, output
             chunk_counters[split_name] += 1
 
     # Processing loop
-    with ProcessPoolExecutor(max_workers=max_workers, initializer=init_worker, initargs=(RPS_FEAT2IDX, NOTE_FEAT2IDX)) as executor:
+    with ProcessPoolExecutor(max_workers=max_workers, initializer=init_worker, initargs=(RPP_FEAT2IDX, NOTE_FEAT2IDX)) as executor:
         BATCH_SIZE = 5000
         for batch_start in range(0, len(tasks), BATCH_SIZE):
             batch_tasks = tasks[batch_start:batch_start+BATCH_SIZE]
@@ -377,8 +377,8 @@ if __name__ == '__main__':
 
 
     # --------------------- midi -> pkl(General) ---------------------
-    with open('./feat2idx_rps.pkl','rb') as f:
-        RPS_FEAT2IDX = pickle.load(f)
+    with open('./feat2idx_rpp.pkl','rb') as f:
+        RPP_FEAT2IDX = pickle.load(f)
 
     with open('./feat2idx_note.pkl','rb') as f:
         NOTE_FEAT2IDX = pickle.load(f)
@@ -388,13 +388,13 @@ if __name__ == '__main__':
 
 
     parser = argparse.ArgumentParser(description='Run Pretrain Data Generation')
-    parser.add_argument('--algorithm', type=str, default='DP', help='Algorithm for splitting RPS (DP, RANDOM)') #RANDOM is for Ablation Study
+    parser.add_argument('--algorithm', type=str, default='DP', help='Algorithm for splitting RPP (DP, RANDOM)') #RANDOM is for Ablation Study
     parser.add_argument('--split_dict', type=str, default=None, help='Path to JSON specifying splits for files')
     parser.add_argument('--output_root', type=str, default='../Datasets/wikifonia', help='Output folder for dataset')
     args, unknown = parser.parse_known_args()
 
     get_standard_data_General_Pad(
-        '../DataProcess/wikifonia', RPS_FEAT2IDX, NOTE_FEAT2IDX,
+        '../DataProcess/wikifonia', RPP_FEAT2IDX, NOTE_FEAT2IDX,
         split_dict_path=args.split_dict,
         output_root=args.output_root,
         algorithm=args.algorithm

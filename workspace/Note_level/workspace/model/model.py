@@ -13,9 +13,9 @@ import ast
 
 CONFIG_PATH = '../../config/config.yaml'
 
-class Graph2Seq(nn.Module):
+class NoteTransformer(nn.Module):
     def __init__(self,cfg):
-        super(Graph2Seq, self).__init__()
+        super(NoteTransformer, self).__init__()
 
         self.cfg = cfg
         d_model = cfg['d_model']
@@ -24,31 +24,31 @@ class Graph2Seq(nn.Module):
         dropout = cfg['dropout']
         
         # embedding
-        self.rps_pe_encoding = PositionalEncoding(
+        self.rpp_pe_encoding = PositionalEncoding(
             d_model=d_model,
             dropout=dropout,
-            max_len=cfg['rps_seq_max']
+            max_len=cfg['rpp_seq_max']
         )
-        self.rps_embedding = RpsEmbedding(cfg=cfg)
+        self.rpp_embedding = RppEmbedding(cfg=cfg)
 
         self.pos_feat_idx = None
         self.bar_feat_idx = None
         
         # Identify feature indices for structural aggregation
         # Handle both casing styles for robustness
-        rps_feats = [f.lower() for f in cfg.get('rps_feature_selected', [])]
+        rpp_feats = [f.lower() for f in cfg.get('rpp_feature_selected', [])]
         
         self.pos_feat_idx = None
-        if 'position' in rps_feats:
-             self.pos_feat_idx = rps_feats.index('position')
+        if 'position' in rpp_feats:
+             self.pos_feat_idx = rpp_feats.index('position')
              
         self.bar_feat_idx = None
-        if 'bar' in rps_feats:
-             self.bar_feat_idx = rps_feats.index('bar')
+        if 'bar' in rpp_feats:
+             self.bar_feat_idx = rpp_feats.index('bar')
 
         self.dur_feat_idx = None
-        if 'duration' in rps_feats:
-             self.dur_feat_idx = rps_feats.index('duration')
+        if 'duration' in rpp_feats:
+             self.dur_feat_idx = rpp_feats.index('duration')
         
 
         encoder_layer = nn.TransformerEncoderLayer(d_model=d_model,nhead=nhead,batch_first=True, norm_first=True)
@@ -59,10 +59,10 @@ class Graph2Seq(nn.Module):
         self.loss_fuc = nn.CrossEntropyLoss(ignore_index=0)
         self.feature_loss_weights = self._build_feature_loss_weights()
 
-    def _expand_memory_to_ticks(self, memory, rps_feat):
+    def _expand_memory_to_ticks(self, memory, rpp_feat):
         """
         Expand [batch, num_nodes, d_model] memory to [batch, max_ticks, d_model]
-        based on bar/position/duration features in rps_feat.
+        based on bar/position/duration features in rpp_feat.
         """
         # Feature indices
         bar_idx = self.bar_feat_idx
@@ -83,7 +83,7 @@ class Graph2Seq(nn.Module):
         grid_len = total_ticks // resolution 
         
         # New memory: [B, grid_len, D]
-        # This will be sparse (only filled where RPS nodes exist/cover)
+        # This will be sparse (only filled where RPP nodes exist/cover)
         expanded_mem = torch.zeros(B, grid_len, D, device=memory.device)
         
         # Expanded Mask: True means PADDING (ignore in Attention)
@@ -91,18 +91,18 @@ class Graph2Seq(nn.Module):
         key_padding_mask = torch.ones(B, grid_len, device=memory.device, dtype=torch.bool)
         
         
-        rps_np = rps_feat.cpu().numpy()
+        rpp_np = rpp_feat.cpu().numpy()
         
 
         
         for b in range(B):
 
-            valid_nodes = (rps_np[b, :, bar_idx] > 0)
+            valid_nodes = (rpp_np[b, :, bar_idx] > 0)
             
 
-            bars = np.maximum(0, rps_np[b, valid_nodes, bar_idx] - 1)
-            poss = np.maximum(0, rps_np[b, valid_nodes, pos_idx] - 1)
-            durs = np.maximum(0, rps_np[b, valid_nodes, dur_idx] - 1) 
+            bars = np.maximum(0, rpp_np[b, valid_nodes, bar_idx] - 1)
+            poss = np.maximum(0, rpp_np[b, valid_nodes, pos_idx] - 1)
+            durs = np.maximum(0, rpp_np[b, valid_nodes, dur_idx] - 1) 
             if len(bars) == 0: continue
 
 
@@ -137,13 +137,13 @@ class Graph2Seq(nn.Module):
         # Output: [batch,token_seq,sum(dim_feature)]
 
         if torch.isnan(V).any():
-             print("[Model] NaN detected in input V (rps_feat)")
+             print("[Model] NaN detected in input V (rpp_feat)")
         if torch.isnan(tgt).any():
              print("[Model] NaN detected in input tgt (note_feat)")
 
 
         
-        rps = self.rps_embedding(V, return_all=False)
+        rpp = self.rpp_embedding(V, return_all=False)
 
         token_mask = (V != 0).any(dim=-1)
         if token_mask.dtype != torch.long and token_mask.dtype != torch.int64:
@@ -156,15 +156,15 @@ class Graph2Seq(nn.Module):
                 if all_masked.any():
                     pad_mask[all_masked, 0] = False
         key_padding = token_mask.float() if token_mask is not None else None
-        rps_embed = self.rps_pe_encoding(rps, key_padding_mask=key_padding)
-        if torch.isnan(rps_embed).any():
+        rpp_embed = self.rpp_pe_encoding(rpp, key_padding_mask=key_padding)
+        if torch.isnan(rpp_embed).any():
              print("[Model] NaN detected in PositionalEncoding output")
 
-        memory = self.encoder(rps_embed, src_key_padding_mask=pad_mask)
+        memory = self.encoder(rpp_embed, src_key_padding_mask=pad_mask)
         if torch.isnan(memory).any():
              print("[Model] NaN detected in Encoder output")
 
-        # [Frame-based Alignment] Expand Memory from RPS Nodes to Absolute Ticks
+        # [Frame-based Alignment] Expand Memory from RPP Nodes to Absolute Ticks
         expanded_memory, expanded_mask = self._expand_memory_to_ticks(memory, V)
         
        
@@ -318,7 +318,7 @@ class DecoderTransformer(nn.Module):
         self.linear = nn.Linear(d_model,int(d_out))
 
     def forward(self,tgt,memory,tgt_mask=None,memory_mask=None):
-        # Input:  target [batch,token_seq,feature]  | memory [batch,rps_seq,d_model] | tgt_mask [batch,token_seq]
+        # Input:  target [batch,token_seq,feature]  | memory [batch,rpp_seq,d_model] | tgt_mask [batch,token_seq]
         # Output: V [batch,token_seq,sum(dim_feature)]
 
 
@@ -377,18 +377,18 @@ class DecoderTransformer(nn.Module):
         return float_mask.to(tgt_mask.device)
 
 
-class RpsEmbedding(nn.Module):
+class RppEmbedding(nn.Module):
     def __init__(self,cfg): 
-        super(RpsEmbedding,self).__init__()
+        super(RppEmbedding,self).__init__()
 
 
         d_embed = cfg['d_embed']
         d_model = cfg['d_model']
         self.d_model = d_model
 
-        features = cfg['rps_feature_selected']
+        features = cfg['rpp_feature_selected']
 
-        dim_dict = cfg['rps_feature_dim_dict']
+        dim_dict = cfg['rpp_feature_dim_dict']
 
 
         self.embeddings = nn.ModuleList()
@@ -470,7 +470,7 @@ class FirstNoteGuidanceMixin:
         self._bar_feature_index = self._feature_index_or_none('bar')
         self._position_feature_index = self._feature_index_or_none('position')
         self._rhythm_feature_index = self._feature_index_or_none('rhythm_pattern')
-        mapping_path = config.get('rps_feat2idx_path') if config else None
+        mapping_path = config.get('rpp_feat2idx_path') if config else None
         self._rhythm_pattern_note_counts = self._load_rhythm_pattern_note_counts(mapping_path)
         if (self._bar_feature_index is None or
                 self._position_feature_index is None or
@@ -480,10 +480,10 @@ class FirstNoteGuidanceMixin:
         self._first_note_enabled = True
 
     def _feature_index_or_none(self, key):
-        if not hasattr(self, 'rps_feature_selected'):
+        if not hasattr(self, 'rpp_feature_selected'):
             return None
         try:
-            return self.rps_feature_selected.index(key)
+            return self.rpp_feature_selected.index(key)
         except ValueError:
             return None
 
@@ -542,26 +542,26 @@ class FirstNoteGuidanceMixin:
                 'first_note_position': forced_pos
             }
 
-        rps_feat = data.get('rps_feat')
-        if rps_feat is None:
+        rpp_feat = data.get('rpp_feat')
+        if rpp_feat is None:
             return {
                 'first_note_mask': mask,
                 'first_note_bar': forced_bar,
                 'first_note_position': forced_pos
             }
 
-        rps_mask = data.get('rps_mask')
+        rpp_mask = data.get('rpp_mask')
         note_mask = data.get('note_mask')
 
         valid_notes = int(torch.count_nonzero(note_mask).item()) if note_mask is not None else seq_len
         valid_notes = max(valid_notes, 0)
-        valid_rps = int(torch.count_nonzero(rps_mask).item()) if rps_mask is not None else int(rps_feat.shape[0])
-        valid_rps = max(valid_rps, 0)
+        valid_rpp = int(torch.count_nonzero(rpp_mask).item()) if rpp_mask is not None else int(rpp_feat.shape[0])
+        valid_rpp = max(valid_rpp, 0)
 
         note_ptr = 1  # skip SOS token at index 0
         max_notes = min(valid_notes, seq_len)
-        for rps_idx in range(1, min(valid_rps, rps_feat.shape[0])):
-            token_id = int(rps_feat[rps_idx, self._rhythm_feature_index].item())
+        for rpp_idx in range(1, min(valid_rpp, rpp_feat.shape[0])):
+            token_id = int(rpp_feat[rpp_idx, self._rhythm_feature_index].item())
             note_count = self._note_count_from_rhythm(token_id)
             if note_count <= 0:
                 continue
@@ -571,8 +571,8 @@ class FirstNoteGuidanceMixin:
             if mask_idx >= seq_len:
                 break
             mask[mask_idx] = True
-            forced_bar[mask_idx] = rps_feat[rps_idx, self._bar_feature_index]
-            forced_pos[mask_idx] = rps_feat[rps_idx, self._position_feature_index]
+            forced_bar[mask_idx] = rpp_feat[rpp_idx, self._bar_feature_index]
+            forced_pos[mask_idx] = rpp_feat[rpp_idx, self._position_feature_index]
             note_ptr += note_count
 
         return {
@@ -597,9 +597,9 @@ class MidiDataset(IterableDataset, FirstNoteGuidanceMixin):
         self.note_feature_all = ['bar', 'position', 'duration', 'pitch', 'velocity'] 
         self.note_feature_selected = config['note_feature_selected']
         self.note_feature_selected_index = [self.note_feature_all.index(s) for s in self.note_feature_selected]
-        self.rps_feature_all = config['rps_feature_all']
-        self.rps_feature_selected = config['rps_feature_selected']
-        self.rps_feature_selected_index = [self.rps_feature_all.index(s) for s in self.rps_feature_selected]
+        self.rpp_feature_all = config['rpp_feature_all']
+        self.rpp_feature_selected = config['rpp_feature_selected']
+        self.rpp_feature_selected_index = [self.rpp_feature_all.index(s) for s in self.rpp_feature_selected]
         self._init_first_note_guidance(config)
     
     def __iter__(self):
@@ -637,16 +637,16 @@ class MidiDataset(IterableDataset, FirstNoteGuidanceMixin):
 
     def _process_item(self, raw_data):
         # Validation from original __init__
-        if 'rps_feat' not in raw_data or 'note_feat' not in raw_data or 'condition' not in raw_data or 'name' not in raw_data:
+        if 'rpp_feat' not in raw_data or 'note_feat' not in raw_data or 'condition' not in raw_data or 'name' not in raw_data:
             return None
 
-        # check rps_feat dimension
-        rps = raw_data['rps_feat']
-        if hasattr(rps, 'shape'):
-             if len(rps.shape) < 2:
+        # check rpp_feat dimension
+        rpp = raw_data['rpp_feat']
+        if hasattr(rpp, 'shape'):
+             if len(rpp.shape) < 2:
                  return None
-             cols = int(rps.shape[1])
-             if not (cols == len(self.rps_feature_selected) or cols > max(self.rps_feature_selected_index)):
+             cols = int(rpp.shape[1])
+             if not (cols == len(self.rpp_feature_selected) or cols > max(self.rpp_feature_selected_index)):
                  return None
         else:
              return None
@@ -654,8 +654,8 @@ class MidiDataset(IterableDataset, FirstNoteGuidanceMixin):
 
         data = {"name": None,
                 "condition": None,
-                "rps_feat": None,
-                "rps_mask":None,
+                "rpp_feat": None,
+                "rpp_mask":None,
                 "note_feat": None,
                 'note_feat_gt':None,
                 'note_mask':None,
@@ -675,12 +675,12 @@ class MidiDataset(IterableDataset, FirstNoteGuidanceMixin):
         
         # feat select
         try:
-            if hasattr(data['rps_feat'], 'shape'):
-                cols = int(data['rps_feat'].shape[1])
-                if cols == len(self.rps_feature_selected):
+            if hasattr(data['rpp_feat'], 'shape'):
+                cols = int(data['rpp_feat'].shape[1])
+                if cols == len(self.rpp_feature_selected):
                     pass
                 else:
-                    data['rps_feat'] = data['rps_feat'][:, self.rps_feature_selected_index]
+                    data['rpp_feat'] = data['rpp_feat'][:, self.rpp_feature_selected_index]
             else:
                 return None
         except Exception:
@@ -695,25 +695,25 @@ class MidiDataset(IterableDataset, FirstNoteGuidanceMixin):
              return None
              
         num_nodes = data['num_nodes'] if data['num_nodes'] is not None else raw_data.get('num_nodes')
-        if num_nodes is None and data['rps_mask'] is not None:
-            num_nodes = int(torch.count_nonzero(data['rps_mask']).item())
+        if num_nodes is None and data['rpp_mask'] is not None:
+            num_nodes = int(torch.count_nonzero(data['rpp_mask']).item())
         if num_nodes is not None:
             data['num_nodes'] = torch.tensor(int(num_nodes), dtype=torch.long)
 
-        if data['rps_mask'] is None and data['rps_feat'] is not None:
-            data['rps_mask'] = (data['rps_feat'] != 0).any(dim=1).long()
+        if data['rpp_mask'] is None and data['rpp_feat'] is not None:
+            data['rpp_mask'] = (data['rpp_feat'] != 0).any(dim=1).long()
         if data['note_mask'] is None and data['note_feat'] is not None:
             data['note_mask'] = (data['note_feat'] != 0).any(dim=1).long()
 
         # Check if Sample is Valid
-        if data['rps_mask'] is not None and torch.sum(data['rps_mask']) == 0:
+        if data['rpp_mask'] is not None and torch.sum(data['rpp_mask']) == 0:
             return None
         if data['note_mask'] is not None and torch.sum(data['note_mask']) == 0:
             return None
 
-        if data['rps_mask'] is None and data['rps_feat'] is not None:
-            rps_nonzero = (data['rps_feat'] != 0).any(dim=1).long()
-            data['rps_mask'] = rps_nonzero
+        if data['rpp_mask'] is None and data['rpp_feat'] is not None:
+            rpp_nonzero = (data['rpp_feat'] != 0).any(dim=1).long()
+            data['rpp_mask'] = rpp_nonzero
         if data['note_mask'] is None and data['note_feat'] is not None:
             note_nonzero = (data['note_feat'] != 0).any(dim=1).long()
             data['note_mask'] = note_nonzero
@@ -807,9 +807,9 @@ class MidiDataset_Inference(Dataset, FirstNoteGuidanceMixin):
         self.note_feature_selected_index = [self.note_feature_all.index(s) for s in self.note_feature_selected]
 
         # Validate and filter entries so DataLoader never receives incomplete samples
-        self.rps_feature_all = config['rps_feature_all']
-        self.rps_feature_selected = config['rps_feature_selected']
-        self.rps_feature_selected_index = [self.rps_feature_all.index(s) for s in self.rps_feature_selected]
+        self.rpp_feature_all = config['rpp_feature_all']
+        self.rpp_feature_selected = config['rpp_feature_selected']
+        self.rpp_feature_selected_index = [self.rpp_feature_all.index(s) for s in self.rpp_feature_selected]
         self._init_first_note_guidance(config)
 
         valid_list = []
@@ -817,18 +817,18 @@ class MidiDataset_Inference(Dataset, FirstNoteGuidanceMixin):
         for entry in raw_list:
             try:
 
-                if 'rps_feat' not in entry or 'note_feat' not in entry or 'condition' not in entry or 'name' not in entry :
+                if 'rpp_feat' not in entry or 'note_feat' not in entry or 'condition' not in entry or 'name' not in entry :
                     skipped += 1
                     continue
 
                
-                rps = entry['rps_feat']
-                if hasattr(rps, 'shape'):
-                    if len(rps.shape) < 2:
+                rpp = entry['rpp_feat']
+                if hasattr(rpp, 'shape'):
+                    if len(rpp.shape) < 2:
                         skipped += 1
                         continue
-                    cols = int(rps.shape[1])
-                    if not (cols == len(self.rps_feature_selected) or cols > max(self.rps_feature_selected_index)):
+                    cols = int(rpp.shape[1])
+                    if not (cols == len(self.rpp_feature_selected) or cols > max(self.rpp_feature_selected_index)):
                         skipped += 1
                         continue
                 else:
@@ -849,8 +849,8 @@ class MidiDataset_Inference(Dataset, FirstNoteGuidanceMixin):
         raw_data = self.data_list[index]
         data = {"name": None,
                 "condition": None,
-                "rps_feat": None,
-                "rps_mask":None,
+                "rpp_feat": None,
+                "rpp_mask":None,
                 "note_feat": None,
                 "note_mask": None,
                 "num_nodes": None,
@@ -870,17 +870,17 @@ class MidiDataset_Inference(Dataset, FirstNoteGuidanceMixin):
                     data[k] = torch.from_numpy(v).long()
 
         # feat select
-        # If rps_feat already contains only the selected columns, keep as-is. Otherwise select from full features.
-        if data['rps_feat'] is None:
-            raise ValueError('Missing rps_feat in data entry')
-        if hasattr(data['rps_feat'], 'shape'):
-            cols = int(data['rps_feat'].shape[1])
-            if cols == len(self.rps_feature_selected):
+        # If rpp_feat already contains only the selected columns, keep as-is. Otherwise select from full features.
+        if data['rpp_feat'] is None:
+            raise ValueError('Missing rpp_feat in data entry')
+        if hasattr(data['rpp_feat'], 'shape'):
+            cols = int(data['rpp_feat'].shape[1])
+            if cols == len(self.rpp_feature_selected):
                 pass
             else:
-                data['rps_feat'] = data['rps_feat'][:, self.rps_feature_selected_index]
+                data['rpp_feat'] = data['rpp_feat'][:, self.rpp_feature_selected_index]
         else:
-            raise ValueError('rps_feat has no shape')
+            raise ValueError('rpp_feat has no shape')
         
         try:
             if data['note_feat'] is not None:
@@ -891,8 +891,8 @@ class MidiDataset_Inference(Dataset, FirstNoteGuidanceMixin):
             raise ValueError(f"Error slicing note_feat for index {index}")
         
         num_nodes = data['num_nodes'] if data['num_nodes'] is not None else raw_data.get('num_nodes')
-        if num_nodes is None and data['rps_mask'] is not None:
-            num_nodes = int(torch.count_nonzero(data['rps_mask']).item())
+        if num_nodes is None and data['rpp_mask'] is not None:
+            num_nodes = int(torch.count_nonzero(data['rpp_mask']).item())
         if num_nodes is not None:
             data['num_nodes'] = torch.tensor(int(num_nodes), dtype=torch.long)
 
@@ -926,8 +926,8 @@ class MidiDataset_Inference(Dataset, FirstNoteGuidanceMixin):
             starts_tensor = torch.tensor([int(starts)], dtype=torch.long)
         data['n_in_starts'] = starts_tensor
 
-        if data['rps_mask'] is None and data['rps_feat'] is not None:
-            data['rps_mask'] = (data['rps_feat'] != 0).any(dim=1).long()
+        if data['rpp_mask'] is None and data['rpp_feat'] is not None:
+            data['rpp_mask'] = (data['rpp_feat'] != 0).any(dim=1).long()
         if data['note_mask'] is None and data['note_feat'] is not None:
             data['note_mask'] = (data['note_feat'] != 0).any(dim=1).long()
 

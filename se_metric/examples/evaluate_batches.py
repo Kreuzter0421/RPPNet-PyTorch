@@ -20,8 +20,8 @@ import statistics
 from glob import glob
 from typing import List, Optional
 
-from se_metric import compute_structure_error, list_midi_files
-from se_metric.core import compute_similarity_curve
+from se_metric.examples.se_metric import compute_structure_error, list_midi_files
+from se_metric.examples.se_metric.core import compute_similarity_curve
 
 
 def evaluate_model_batches(

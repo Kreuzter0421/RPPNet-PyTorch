@@ -8,7 +8,7 @@ import numpy as np
 
 DEFAULT_SUCCESS_CADENCE = (2, 3)
 
-class GraphTransformer(nn.Module):
+class RPPTransformer(nn.Module):
 
     def __init__(self,cfg):
         super().__init__()
@@ -20,28 +20,28 @@ class GraphTransformer(nn.Module):
         num_layers = cfg['num_layers']
         dim_feedforward = cfg['dim_feedforward']
         dropout = cfg['dropout']
-        self.rps_feature_dim_dict = cfg['rps_feature_dict']
-        self.rps_feature_selected = cfg['rps_feature_selected']
-        self.d_out = np.sum([self.rps_feature_dim_dict[f] for f in self.rps_feature_selected])
+        self.rpp_feature_dim_dict = cfg['rpp_feature_dict']
+        self.rpp_feature_selected = cfg['rpp_feature_selected']
+        self.d_out = np.sum([self.rpp_feature_dim_dict[f] for f in self.rpp_feature_selected])
         self.seq_max = cfg['seq_max']
 
         self.cfg = cfg
-        self.feature_name_to_idx = {name: idx for idx, name in enumerate(self.rps_feature_selected)}
+        self.feature_name_to_idx = {name: idx for idx, name in enumerate(self.rpp_feature_selected)}
         self._value_vector_cache = {}
         self._cached_hidden = None
         
         start_tokens = []
-        for feat_name in self.rps_feature_selected:
-            vocab = int(self.rps_feature_dim_dict[feat_name])
+        for feat_name in self.rpp_feature_selected:
+            vocab = int(self.rpp_feature_dim_dict[feat_name])
             start_tokens.append(max(vocab - 1, 0))
         self.register_buffer('start_token_vector', torch.tensor(start_tokens, dtype=torch.long))
         feature_loss_cfg = cfg.get('feature_loss_weights', {}) or {}
         self.feature_loss_weights = {
-            name: float(feature_loss_cfg.get(name, 1.0)) for name in self.rps_feature_selected
+            name: float(feature_loss_cfg.get(name, 1.0)) for name in self.rpp_feature_selected
         }
         
         # Embedding Module
-        self.RPS_embeding = RpsEmbedding(cfg)
+        self.RPP_embeding = RppEmbedding(cfg)
         self.PE_encoding = PositionalEncoding(
             d_model=d_model,
             dropout=dropout,
@@ -66,7 +66,7 @@ class GraphTransformer(nn.Module):
         self.memory_norm = nn.LayerNorm(d_model)
         self.post_decoder_norm = nn.LayerNorm(d_model)
         self.output_norm = nn.LayerNorm(d_model)
-        self.feature_dims = {name: int(self.rps_feature_dim_dict[name]) for name in self.rps_feature_selected}
+        self.feature_dims = {name: int(self.rpp_feature_dim_dict[name]) for name in self.rpp_feature_selected}
         self.time_features = [feat for feat in ['global_pos', 'bar', 'position', 'duration'] if feat in self.feature_dims]
         cascade_dim = int(cfg.get('cascade_embed_dim', d_model))
         self.cascade_embed_dim = cascade_dim
@@ -77,7 +77,7 @@ class GraphTransformer(nn.Module):
             self.delta_embedding = nn.Embedding(512, cascade_dim) 
         
         self.feature_heads = nn.ModuleDict()
-        for feat in self.rps_feature_selected:
+        for feat in self.rpp_feature_selected:
             in_dim = d_model
             if feat == 'global_pos':
                 # Stream A: Skeleton (Global Pos) relies only on history (hidden state)
@@ -114,7 +114,7 @@ class GraphTransformer(nn.Module):
 
         raw_feats = tgt.clone()
         teacher_inputs = self._build_autoregressive_inputs(tgt)
-        tgt = self.RPS_embeding(teacher_inputs)
+        tgt = self.RPP_embeding(teacher_inputs)
         
         tgt = self.embedding_dropout(tgt)
         tgt = self.input_norm(tgt)
@@ -124,7 +124,7 @@ class GraphTransformer(nn.Module):
         tgt_mask = self._get_square_subsequent_mask(tgt.shape[1], device=tgt.device)
         tgt_padding_mask = None if key_mask is None else self._get_key_padding_mask(tgt_mask=key_mask)
         
-        attr_memory = self.RPS_embeding(teacher_inputs)
+        attr_memory = self.RPP_embeding(teacher_inputs)
         if bool_mask is not None:
             attr_memory = attr_memory * bool_mask.unsqueeze(-1).float()
         memory = attr_memory
@@ -231,7 +231,7 @@ class GraphTransformer(nn.Module):
                 delta_emb = self.delta_embedding(delta)
 
         # Stream B: run detail heads with injected future anchors
-        for feat in self.rps_feature_selected:
+        for feat in self.rpp_feature_selected:
             if feat == 'global_pos':
                 continue
             extras = []
@@ -263,7 +263,7 @@ class GraphTransformer(nn.Module):
 
                 logits_map['duration'] = dur_logits.masked_fill(mask, -1e9)
 
-        ordered_logits = [logits_map[feat] for feat in self.rps_feature_selected if feat in logits_map]
+        ordered_logits = [logits_map[feat] for feat in self.rpp_feature_selected if feat in logits_map]
         if not ordered_logits:
             raise RuntimeError("No feature logits were produced; check feature configuration")
         output = torch.cat(ordered_logits, dim=-1)
@@ -274,7 +274,7 @@ class GraphTransformer(nn.Module):
     def predict_transform(self,X):
         # Input:  X [batch,1,d_model]
         # Output: X [batch,d_feat]
-        feature_size = [self.cfg['rps_feature_dict'][f] for f in self.cfg['rps_feature_selected']]
+        feature_size = [self.cfg['rpp_feature_dict'][f] for f in self.cfg['rpp_feature_selected']]
         div_index =[0] + [sum(feature_size[:i+1]) for i in range(len(feature_size))]
         Xs = [X[...,i:j] for i,j in zip(div_index[:-1],div_index[1:])]
         Xs = [torch.squeeze(x,dim=1) for x in Xs]
@@ -289,7 +289,7 @@ class GraphTransformer(nn.Module):
         # X [10,512,453]                         --------    Y [10,512,5]
 
         # Split Feature
-        feature_size = [self.cfg['rps_feature_dict'][f] for f in self.cfg['rps_feature_selected']]
+        feature_size = [self.cfg['rpp_feature_dict'][f] for f in self.cfg['rpp_feature_selected']]
         assert len(feature_size) == gt.shape[2], 'in model.loss : Dim of Featureselected != Dim of GroundTruth[2]'
         assert sum(feature_size) == predict.shape[2], 'in model.Loss : Dim(predict[2]) != Dim(features)'
         div_index =[0] + [sum(feature_size[:i+1]) for i in range(len(feature_size))]
@@ -304,7 +304,7 @@ class GraphTransformer(nn.Module):
         weight_total = 0.0
         feature_components = {}
         mse_losses = []
-        for feat_name, pre, gt_feat in zip(self.rps_feature_selected, predicts, gts):
+        for feat_name, pre, gt_feat in zip(self.rpp_feature_selected, predicts, gts):
             weight = float(self.feature_loss_weights.get(feat_name, 1.0))
             if feat_name in self.distance_smoothed_features and self.label_smoothing_sigma > 0:
                 raw_loss = self._gaussian_label_loss(pre, gt_feat)
@@ -717,7 +717,7 @@ class GraphTransformer(nn.Module):
         return -(log_probs[pos_mask].mean())
 
     def _build_feature_repr(self, raw_feats, cfg):
-        feature_names = cfg.get('feature_names') or self.feature_consistency_cfg.get('feature_names') or self.rps_feature_selected
+        feature_names = cfg.get('feature_names') or self.feature_consistency_cfg.get('feature_names') or self.rpp_feature_selected
         scales_cfg = cfg.get('scales', {}) or {}
         indices = []
         scales = []
@@ -759,8 +759,8 @@ class GraphTransformer(nn.Module):
     def _build_groundtruth_feature_repr(self, gt, indices):
         reprs = []
         for idx in indices:
-            feature_name = self.rps_feature_selected[idx]
-            scale = max(1, int(self.rps_feature_dict.get(feature_name, 1)) - 1)
+            feature_name = self.rpp_feature_selected[idx]
+            scale = max(1, int(self.rpp_feature_dict.get(feature_name, 1)) - 1)
             values = gt[..., idx].float() / float(scale)
             reprs.append(values.unsqueeze(-1))
         return torch.cat(reprs, dim=-1)
@@ -804,9 +804,9 @@ class GraphTransformer(nn.Module):
 
 
 
-class RpsEmbedding(nn.Module):
+class RppEmbedding(nn.Module):
     def __init__(self,cfg): 
-        super(RpsEmbedding,self).__init__()
+        super(RppEmbedding,self).__init__()
 
 
 
@@ -814,9 +814,9 @@ class RpsEmbedding(nn.Module):
         d_embed = cfg['d_embed']
         d_model = cfg['d_model']
 
-        features = cfg['rps_feature_selected']
+        features = cfg['rpp_feature_selected']
 
-        dim_dict = cfg['rps_feature_dict']
+        dim_dict = cfg['rpp_feature_dict']
 
 
         self.embeddings = nn.ModuleList()

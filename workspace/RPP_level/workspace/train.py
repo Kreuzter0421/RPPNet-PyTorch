@@ -1,10 +1,10 @@
 import argparse
 import yaml
 import torch
-from model import MuGraphDataset as MuGraphDataset
+from model import RPPDataset as RPPDataset
 from torch.utils.data import DataLoader
 from torch.utils.data._utils.collate import default_collate
-from model import GraphTransformer
+from model import RPPTransformer
 import os
 import pickle
 from tqdm import tqdm
@@ -104,26 +104,26 @@ def parse_args():
     return parser.parse_args()
 
 
-def sync_rps_feature_dict(cfg, config_path):
-    dict_rel_path = cfg.get('rps_feat2idx_path')
+def sync_rpp_feature_dict(cfg, config_path):
+    dict_rel_path = cfg.get('rpp_feat2idx_path')
     if not dict_rel_path:
         return cfg
     config_dir = os.path.dirname(os.path.abspath(config_path))
     dict_path = dict_rel_path if os.path.isabs(dict_rel_path) else os.path.normpath(os.path.join(config_dir, dict_rel_path))
     if not os.path.exists(dict_path):
-        raise FileNotFoundError(f"rps_feat2idx_path not found: {dict_path}")
+        raise FileNotFoundError(f"rpp_feat2idx_path not found: {dict_path}")
     with open(dict_path, 'rb') as f:
         vocab = pickle.load(f)
     dims = {k: len(v) for k, v in vocab.items()}
-    feature_dict = cfg.setdefault('rps_feature_dict', {})
-    selected = cfg.get('rps_feature_selected', []) or []
+    feature_dict = cfg.setdefault('rpp_feature_dict', {})
+    selected = cfg.get('rpp_feature_selected', []) or []
     missing = [feat for feat in selected if feat not in dims and feat != 'global_pos']
     if missing:
         raise KeyError(f"Features {missing} missing from {dict_path}")
     for feat in selected:
         if feat in dims:
             feature_dict[feat] = dims[feat]
-    if 'cadence_tag' in cfg.get('rps_feature_all', []) and 'cadence_tag' in dims:
+    if 'cadence_tag' in cfg.get('rpp_feature_all', []) and 'cadence_tag' in dims:
         feature_dict['cadence_tag'] = dims['cadence_tag']
     return cfg
 
@@ -135,15 +135,15 @@ def evaluate(e, cfg, model, val_iter, device):
         loss_list = []
         for b, batch in enumerate(val_iter):
 
-            tgt = batch['rps_feat'].to(device)
+            tgt = batch['rpp_feat'].to(device)
             # tgt_gt is NEEDED for safe autoregressive evaluation (to protect GT duration)
-            tgt_gt = batch['rps_feat_gt'].to(device)
-            rps_mask = batch['rps_mask'].to(device)
+            tgt_gt = batch['rpp_feat_gt'].to(device)
+            rpp_mask = batch['rpp_mask'].to(device)
 
             
-            out = model(tgt=tgt, tgt_gt=tgt_gt, tgt_key_mask=rps_mask, use_teacher_pos=False)
+            out = model(tgt=tgt, tgt_gt=tgt_gt, tgt_key_mask=rpp_mask, use_teacher_pos=False)
 
-            loss = model.loss(predict=out, gt=tgt_gt, mask=rps_mask, raw_feats=tgt)
+            loss = model.loss(predict=out, gt=tgt_gt, mask=rpp_mask, raw_feats=tgt)
 
             loss_list.append(loss.data.item())
 
@@ -164,19 +164,19 @@ def train(e, cfg, model, optimizer, train_iter, device, scheduler=None, schedule
             use_teacher_pos = False
 
         # Unpack batch tensors (same as in evaluate) and move to device
-        tgt = batch['rps_feat'].to(device)
+        tgt = batch['rpp_feat'].to(device)
         # tgt_gt is NEEDED for safe autoregressive evaluation/training (to protect GT duration)
-        tgt_gt = batch['rps_feat_gt'].to(device)
-        rps_mask = batch['rps_mask'].to(device)
+        tgt_gt = batch['rpp_feat_gt'].to(device)
+        rpp_mask = batch['rpp_mask'].to(device)
 
         # Forward
-        out = model(tgt=tgt, tgt_gt=tgt_gt, tgt_key_mask=rps_mask, use_teacher_pos=use_teacher_pos)
+        out = model(tgt=tgt, tgt_gt=tgt_gt, tgt_key_mask=rpp_mask, use_teacher_pos=use_teacher_pos)
 
         # Loss
         optimizer.zero_grad()
         loss, feature_breakdown = model.loss(predict=out,
                              gt=tgt_gt,
-                             mask=rps_mask,
+                             mask=rpp_mask,
                              
                              raw_feats=tgt,
                              return_components=True)
@@ -220,7 +220,7 @@ def main(args=None):
     config_path = os.path.abspath(args.config)
     with open(config_path, 'r') as f:
         cfg = yaml.full_load(f)
-    cfg = sync_rps_feature_dict(cfg, config_path)
+    cfg = sync_rpp_feature_dict(cfg, config_path)
 
     if cfg['use_gpu']:
         device = torch.device("cuda:{}".format(cfg['gpuID']) if torch.cuda.is_available() else "cpu")
@@ -254,7 +254,7 @@ def main(args=None):
             f.write(f"# Resume {datetime.datetime.now().isoformat()} from {args.resume}\n")
 
     # Model
-    model = GraphTransformer(cfg=cfg).to(device)
+    model = RPPTransformer(cfg=cfg).to(device)
     total = sum([param.nelement() for param in model.parameters()])
     print("* Number of parameters: %.2fM *" % (total / 1e6))
 
@@ -270,8 +270,8 @@ def main(args=None):
         raise ValueError(f"Unsupported optimizer '{optimizer_name}'")
 
     # Data
-    train_dataset = MuGraphDataset(cfg,dataroot=cfg['train_pkl'])
-    val_dataset = MuGraphDataset(cfg,dataroot=cfg['val_pkl'])
+    train_dataset = RPPDataset(cfg,dataroot=cfg['train_pkl'])
+    val_dataset = RPPDataset(cfg,dataroot=cfg['val_pkl'])
 
     num_workers = int(cfg.get('num_workers', 0))
     pin_memory = bool(cfg.get('pin_memory', device.type == 'cuda'))
@@ -433,8 +433,8 @@ if __name__ == '__main__':
 #
 #     # # -------------------- [Test Encoder] --------------------#
 #     # encoder = EncoderGAT(cfg=cfg)
-#     # V = data['rps_feature_seq']
-#     # E = data['rps_edge_seq']
+#     # V = data['rpp_feature_seq']
+#     # E = data['rpp_edge_seq']
 #     # out = encoder(V,E)
 #     # print(out.shape)
 #
@@ -446,7 +446,7 @@ if __name__ == '__main__':
 #
 #     # -------------------- [Test Graph2Seq] --------------------#
 #     model= Graph2Seq(cfg=cfg)
-#     out = model(V=data['rps_feature_seq'],E=data['rps_edge_seq'],tgt=data['note_seq'],tgt_mask=data['note_mask'])
+#     out = model(V=data['rpp_feature_seq'],E=data['rpp_edge_seq'],tgt=data['note_seq'],tgt_mask=data['note_mask'])
 #     print(out,out.shape)
 #     loss = model.loss(predict=out,gt=data['note_seq_gt'])
 #     print(loss)

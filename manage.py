@@ -9,10 +9,9 @@ from pprint import pprint
 # Parser
 parser = argparse.ArgumentParser(description="This is a sample program.")
 parser.add_argument('-n', '--new', action='store_true')
-parser.add_argument("-m","--mode", type=str, default="None", help="* train_s2g | train_g2s | inference_s2g | inference_g2s | inference")
+parser.add_argument("-m","--mode", type=str, default="None", help="* train_RPP | train_Note | inference_RPP | inference_Note ")
 parser.add_argument("-i","--input", type=str, default="auto", help="* specify data path")
 parser.add_argument("-o","--output", type=str, default="auto", help="* specify save path")
-parser.add_argument("--seed", type=int, default=None, help="Override RNG seed when supported (e.g., inference)")
 args = parser.parse_args()
 
 mode_available = ['train_RPP','train_Note','inference_RPP','inference_Note']
@@ -72,8 +71,6 @@ elif args.mode == 'inference_RPP':
     input = args.input
     output = args.output
     cmd = ["python", "inference.py","-e",f"{exp_dir}","-m","feature","-i",f"{input}","-o",f"{output}"]
-    if args.seed is not None:
-        cmd.extend(["--seed", str(args.seed)])
     subprocess.call(cmd, cwd=workspace_dir)
 
 elif args.mode == 'inference_Note':
@@ -87,13 +84,6 @@ elif args.mode == 'inference_Note':
     workspace_dir = "workspace/Note_level/workspace"
     subprocess.call(["python", "inference.py", "-e", f"{exp_dir}","-i",f"{args.input}","-o",f"{args.output}"], cwd=workspace_dir)
 
-
-# Exp_Record
-# 4-11-17-25 graph
-# 4-11-12-57 rps
-
-#4-13-17-40 new - 4-14-17-40
-#4-13-17-49 wo both 
 
 
 

@@ -12,7 +12,7 @@ import glob
 import os
 
 # Datasets
-class MuGraphDataset(IterableDataset):
+class RPPDataset(IterableDataset):
     def __init__(self, config, dataroot):
         self.dataroot = dataroot
         self.files = []
@@ -22,8 +22,8 @@ class MuGraphDataset(IterableDataset):
             self.files = [dataroot]
         
 
-        self.rps_feature_all = config['rps_feature_all']
-        self.rps_feature_selected = config['rps_feature_selected']
+        self.rpp_feature_all = config['rpp_feature_all']
+        self.rpp_feature_selected = config['rpp_feature_selected']
 
     def __iter__(self):
         worker_info = get_worker_info()
@@ -59,9 +59,9 @@ class MuGraphDataset(IterableDataset):
         # Extracted logic from original __getitem__
         data = {"name": None,
                 "condition": None,
-                "rps_feat": None,
-                "rps_feat_gt":None,
-                "rps_mask":None,
+                "rpp_feat": None,
+                "rpp_feat_gt":None,
+                "rpp_mask":None,
                 "num_nodes": None,
                 "n_in_sequences": None,
                 "n_in_stride": None,
@@ -78,24 +78,24 @@ class MuGraphDataset(IterableDataset):
                     data[k] = torch.from_numpy(v).long()
         
         # feat select logic
-        if data['rps_feat'] is not None:
-             data['rps_feat'] = self._process_feats(data['rps_feat'])
+        if data['rpp_feat'] is not None:
+             data['rpp_feat'] = self._process_feats(data['rpp_feat'])
              
-        if data['rps_feat_gt'] is not None:
-             data['rps_feat_gt'] = self._process_feats(data['rps_feat_gt'])
+        if data['rpp_feat_gt'] is not None:
+             data['rpp_feat_gt'] = self._process_feats(data['rpp_feat_gt'])
              
         # Metadata logic (extended)
         
         seq_len = 0
-        if data['rps_feat'] is not None:
-            seq_len = int(data['rps_feat'].shape[0])
+        if data['rpp_feat'] is not None:
+            seq_len = int(data['rpp_feat'].shape[0])
         if seq_len > 0:
             data['node_positions'] = torch.arange(seq_len, dtype=torch.long)
 
         # metadata
         num_nodes = data['num_nodes'] if data['num_nodes'] is not None else raw_data.get('num_nodes')
-        if num_nodes is None and data['rps_mask'] is not None:
-            num_nodes = int(torch.count_nonzero(data['rps_mask']).item())
+        if num_nodes is None and data['rpp_mask'] is not None:
+            num_nodes = int(torch.count_nonzero(data['rpp_mask']).item())
         if num_nodes is not None:
             data['num_nodes'] = torch.tensor(int(num_nodes), dtype=torch.long)
 
@@ -137,16 +137,16 @@ class MuGraphDataset(IterableDataset):
             return None
         
         try:
-            bar_idx = self.rps_feature_all.index('bar')
-            pos_idx = self.rps_feature_all.index('position')
+            bar_idx = self.rpp_feature_all.index('bar')
+            pos_idx = self.rpp_feature_all.index('position')
         except ValueError:
-            indices = [self.rps_feature_all.index(f) for f in self.rps_feature_selected if f in self.rps_feature_all]
+            indices = [self.rpp_feature_all.index(f) for f in self.rpp_feature_selected if f in self.rpp_feature_all]
             return full_feats[:, indices]
 
         seq_len = full_feats.shape[0]
         selected_cols = []
         
-        for feat_name in self.rps_feature_selected:
+        for feat_name in self.rpp_feature_selected:
             if feat_name == 'global_pos':
                 bars = full_feats[:, bar_idx]
                 poss = full_feats[:, pos_idx]
@@ -156,8 +156,8 @@ class MuGraphDataset(IterableDataset):
                 calc_vals = (b_safe - 1) * 16 + (p_safe - 1) + 1
                 global_vals = torch.where(valid_mask, calc_vals, torch.zeros_like(calc_vals))
                 selected_cols.append(global_vals)
-            elif feat_name in self.rps_feature_all:
-                f_idx = self.rps_feature_all.index(feat_name)
+            elif feat_name in self.rpp_feature_all:
+                f_idx = self.rpp_feature_all.index(feat_name)
                 selected_cols.append(full_feats[:, f_idx])
             else:
                 selected_cols.append(torch.zeros(seq_len, dtype=torch.long))

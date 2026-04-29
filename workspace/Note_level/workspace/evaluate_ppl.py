@@ -9,11 +9,11 @@ import math
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from model.model import Graph2Seq, MidiDataset
-from train import collate_graph2seq, build_feature_loss_masks
+from model.model import NoteTransformer, MidiDataset
+from train import collate_noteLevel, build_feature_loss_masks
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Evaluate Graph2Seq Global Perplexity (PPL)")
+    parser = argparse.ArgumentParser(description="Evaluate NoteTransformer Global Perplexity (PPL)")
     parser.add_argument("--config", type=str, default="../config/config.yaml",
                         help="Path to the model config.yaml file.")
     parser.add_argument("--model-path", type=str, required=True,
@@ -41,13 +41,13 @@ def main():
     test_loader = DataLoader(
         test_dataset, 
         batch_size=args.batch_size, 
-        collate_fn=collate_graph2seq, 
+        collate_fn=collate_noteLevel, 
         num_workers=4,
         drop_last=False 
     )
     
     print(f"Loading model from: {args.model_path}")
-    model = Graph2Seq(cfg=cfg).to(device)
+    model = NoteTransformer(cfg=cfg).to(device)
     
     checkpoint = torch.load(args.model_path, map_location=device)
     if 'model_state_dict' in checkpoint:
@@ -70,7 +70,7 @@ def main():
     print("Starting Teacher Forcing Evaluation...")
     with torch.no_grad():
         for batch in tqdm(test_loader, desc="Evaluating PPL"):
-            V = batch['rps_feat'].to(device)
+            V = batch['rpp_feat'].to(device)
            
             tgt = batch['note_feat'].to(device)
             

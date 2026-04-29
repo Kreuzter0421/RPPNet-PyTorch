@@ -7,7 +7,7 @@ gpuID: 0
 
 # model save path
 model_save_dir : '../saved_model'
-best_model_path : '../saved_model/4-27-21-43/epoch_10.pt'
+best_model_path : '../saved_model/4-29-13-46/epoch_0.pt'
 
 # dataset
 raw_data_path : './graph2seq.pkl'
@@ -16,10 +16,10 @@ data_path : './data.pkl'
 train_pkl : '../../Datasets/wikifonia/train'
 val_pkl : '../../Datasets/wikifonia/val'
 test_pkl : '../../Datasets/wikifonia/test'
-rps_feat2idx_path : '../../DataProcess/feat2idx_rps.pkl'
+rpp_feat2idx_path : '../../DataProcess/feat2idx_rpp.pkl'
 
 tick_resolution : 120
-rps_seq_max : 256
+rpp_seq_max : 256
 token_seq_max : 1024
 bar_max : 32
 batch_size: 16
@@ -45,7 +45,7 @@ grad_clip : 1.0
 # scheduled sampling
 
 
-# adjacency-aware positional encoding for RPS encoder
+# adjacency-aware positional encoding for RPP encoder
 
 
 note_feature_loss_weights:
@@ -58,18 +58,18 @@ note_feature_loss_weights:
 
 
 # Bar=idx | Position=(idx-1)*30 | Duration=(idx-1)*30 | NoteCnt=idx | RhythmType=(idx-1) | MelodyOutline=(idx-1)
-#rps_feature_selected : ['Bar','Position','Duration','NoteCnt','RhythmType','MelodyOutline']
-#rps_feature_dim_dict: {'Bar':65, # <pad> [1-64]
+#rpp_feature_selected : ['Bar','Position','Duration','NoteCnt','RhythmType','MelodyOutline']
+#rpp_feature_dim_dict: {'Bar':65, # <pad> [1-64]
 #                       'Position':65, # <pad> [1-64]
 #                       'Duration':129, # <pad> [1-128]
 #                       'NoteCnt':4, # <pad> [1-3]
 #                       'RhythmType':8, # <pad> [1-7]
 #                       'MelodyOutline':15} # <pad> [1-14]
-rps_feature_all : ['bar','position','duration','rhythm_pattern','melody_contour','pitch_region']
-# rps_feature_selected : ['bar','position','duration','rhythm_pattern','melody_contour','pitch_region']
+rpp_feature_all : ['bar','position','duration','rhythm_pattern','melody_contour','pitch_region']
+# rpp_feature_selected : ['bar','position','duration','rhythm_pattern','melody_contour','pitch_region']
 # Removed pitch_region to reduce error propagation from stage 2 and rely on decoder autoregression
-rps_feature_selected : ['bar','position','duration','rhythm_pattern','melody_contour']
-rps_feature_dim_dict: {"bar": 130,
+rpp_feature_selected : ['bar','position','duration','rhythm_pattern','melody_contour']
+rpp_feature_dim_dict: {"bar": 130,
                       "position": 18,
                       "duration": 35,
                       "rhythm_pattern": 9,
@@ -99,4 +99,4 @@ temperature:
   - 1.0  # velocity
 sampling_topk: 5
 deterministic_inference: false
-# midi_dict = {'name':'','rps_feature_seq':[],'rps_edge_seq':[],'rps_mask':[],'note_seq':[],'note_mask':[]}
+# midi_dict = {'name':'','rpp_feature_seq':[],'rpp_edge_seq':[],'rpp_mask':[],'note_seq':[],'note_mask':[]}

@@ -1,3 +1,3 @@
-from .dataset import MuGraphDataset
-from .model_n import GraphTransformer
+from .dataset import RPPDataset
+from .model import RPPTransformer
 

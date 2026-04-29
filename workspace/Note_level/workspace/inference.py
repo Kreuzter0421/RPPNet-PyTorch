@@ -4,7 +4,7 @@ import yaml
 import torch
 from model.model import MidiDataset_Inference as MidiDataset
 from torch.utils.data import DataLoader
-from model.model import Graph2Seq
+from model.model import NoteTransformer
 
 import os
 from tqdm import tqdm
@@ -77,7 +77,7 @@ def write_midi(cfg,data,save_path,name):
 
 def inference(cfg, model, batch, device):
     model.eval()    
-    V = batch['rps_feat'].to(device)
+    V = batch['rpp_feat'].to(device)
     
     
     is_v2 = cfg.get('model_type', 'v1') == 'v2'
@@ -109,28 +109,28 @@ def inference(cfg, model, batch, device):
             next_note = out[:,-1:,:]
             
            
-            rps_force = cfg.get('constraints', {}).get('force_rps_alignment', False)
+            rpp_force = cfg.get('constraints', {}).get('force_rpp_alignment', False)
             
-            # Prepare RPS Ticks for checking
-            rps_ticks_cache = None
-            if rps_force:
+            # Prepare RPP Ticks for checking
+            rpp_ticks_cache = None
+            if rpp_force:
                 v_dat = V[0].float()
                 valid_mask = (v_dat[:, 0] > 0)
                 if valid_mask.any():
-                    rps_bars = v_dat[valid_mask, 0] - 1
-                    rps_poses = (v_dat[valid_mask, 1] - 1) * 120
-                    rps_ticks_cache = rps_bars * 1920 + rps_poses
+                    rpp_bars = v_dat[valid_mask, 0] - 1
+                    rpp_poses = (v_dat[valid_mask, 1] - 1) * 120
+                    rpp_ticks_cache = rpp_bars * 1920 + rpp_poses
 
-            # Sampling Loop for RPS Alignment
+            # Sampling Loop for RPP Alignment
             aligned_sample_found = False
-            rps_retries = 0
+            rpp_retries = 0
             
-            while not aligned_sample_found and rps_retries < 20:
+            while not aligned_sample_found and rpp_retries < 20:
                 next_note = model.predict_transform(out[:,-1:,:]) # Sample
                 if next_note.dim() == 2:
                      next_note = next_note.unsqueeze(1)
                 
-                if not rps_force or rps_ticks_cache is None:
+                if not rpp_force or rpp_ticks_cache is None:
                     aligned_sample_found = True
                     break
 
@@ -146,12 +146,12 @@ def inference(cfg, model, batch, device):
                 
                 # Check distance
                 # We use 30 ticks tolerance (approx 32nd note)
-                dist = torch.min(torch.abs(rps_ticks_cache - c_tick))
+                dist = torch.min(torch.abs(rpp_ticks_cache - c_tick))
                 
                 if dist <= 30: 
                     aligned_sample_found = True
                 else:
-                    rps_retries += 1
+                    rpp_retries += 1
                     
             
             pass
@@ -178,36 +178,6 @@ def inference(cfg, model, batch, device):
                     
                     constraints = cfg.get('constraints', {})
 
-                    # [Optimization: Soft Black Key Filter]
-                        # Dynamically reject Black Keys with 80% probability to reduce clutter without full ban.
-                        # constraints = cfg.get('constraints', {})
-                    if constraints.get('filter_black_keys', False):
-                            # Pitch is feature 3 (index 3). Assuming feature 1 = MIDI 0 (or cfg specific)
-                            # But wait, logic above says pitch = idx-1. 
-                            # Let's trust feature definition: pitch_feat = MIDI + 1 (Pad=0)
-                            p_val = curr_tensor[3]
-                            if p_val > 0:
-                                midi_pc = (p_val - 1) % 12
-                                is_black_key = midi_pc in {1, 3, 6, 8, 10}
-                                if is_black_key:
-                                    if np.random.random() < 0.8: # 80% reject
-                                        out_reshaped = out[:,-1:,:]
-                                        next_note = model.predict_transform(out_reshaped)
-                                        if next_note.dim() == 2:
-                                            next_note = next_note.unsqueeze(1)
-                                        current_retry += 1
-                                        continue 
-                    
-                    # [Constraint 2] Disallow 16th note weak beat starts ONLY FOR THE FIRST NOTE
-                    if i == 1 and constraints.get('force_strong_beat_first', False):
-                        # Position unit is 120. Weak 16th beats are 120, 360... (indices where (idx-1)%2 != 0)
-                        if (curr_tensor[1] - 1) % 2 != 0:
-                            out_reshaped = out[:,-1:,:]
-                            next_note = model.predict_transform(out_reshaped)
-                            if next_note.dim() == 2:
-                                next_note = next_note.unsqueeze(1)
-                            current_retry += 1
-                            continue
 
                     # note_check standard rules
                     # Pass cfg to note_check to use dynamic constraints
@@ -277,7 +247,7 @@ def inference(cfg, model, batch, device):
         
         return tgt
     # V2 Logic
-    B, N, D_RPS = V.shape
+    B, N, D_RPP = V.shape
     feature_dims = [cfg['note_feature_dim_dict'][f] for f in cfg['note_feature_selected']]
     F_dim = len(feature_dims)
     
@@ -350,16 +320,13 @@ def main():
     congfig_path = '../config/config.yaml'
     cfg = yaml.full_load(open(congfig_path, 'r'))
     
-    # [Dynamic Constraints Configuration]
-    # You can toggle these flags to control inference behavior
+
+    # Control the output MIDI file
     cfg['constraints'] = {
-        'filter_black_keys': False,       # Reject black keys (C Major assumption)
-        'force_strong_beat_first': False, # First note must start on 8th note grid
-        'prevent_cross_measure': True,   # Truncate notes crossing bar lines
-        'prevent_overlap': True,         # Truncate previous note if current overlaps (Monophony)
-        'max_pitch_jump': 12,             # Max semitone jump allowed (0 to disable)
-        'force_bar_0_start': True,       # Shift entire piece to start at Bar 0
-        'truncate_to_32_bars': True      # Remove notes beyond Bar 32
+        'prevent_cross_measure': True,   
+        'prevent_overlap': True,         
+        'force_bar_0_start': True,       
+        'truncate_to_32_bars': True     
     }
 
 
@@ -374,12 +341,8 @@ def main():
     print(device)
 
     # Model
-    model_type = cfg.get('model_type', 'v1')
-    print(f"Loading model type: {model_type}")
-    if model_type == 'v2':
-        model = Graph2Seq(cfg=cfg).to(device)
-    else:
-        model = Graph2Seq(cfg=cfg).to(device)
+    model = NoteTransformer(cfg=cfg).to(device)
+
         
     if cfg['usegpu'] and torch.cuda.is_available():
         state_dict = torch.load(cfg['best_model_path'],map_location=torch.device('cuda:{}'.format(cfg['gpuID'])))
@@ -420,7 +383,7 @@ def main():
             cur_dict['name'] = batch['name'][idx]
             cur_dict['condition'] = batch['condition'][idx].cpu().numpy()
             cur_dict['note_feat'] = batch['note_feat'][idx].cpu().numpy()
-            cur_dict['rps_feat'] = batch['rps_feat'][idx].cpu().numpy()
+            cur_dict['rpp_feat'] = batch['rpp_feat'][idx].cpu().numpy()
             cur_dict['note_inference'] = tgt_infer[idx].cpu().numpy()
             tgt_infer_list.append(cur_dict)
 

@@ -6,7 +6,7 @@ import ast
 import torch
 from torch.utils.data import DataLoader
 import yaml
-from model import GraphTransformer
+from model import RPPTransformer
 from tqdm import tqdm
 import os
 import argparse
@@ -20,7 +20,6 @@ parser.add_argument("-e","--expdir", type=str, default="", help="specify RecordD
 parser.add_argument("-i","--input", type=str, default="auto", help="specify data path")
 parser.add_argument("-o","--output", type=str, default="auto", help="specify save path")
 parser.add_argument("-m","--mode",type=str, default="all", help="specify stage if stage is seperated * edge * feature")
-parser.add_argument("--seed", type=int, default=None, help="override RNG seed (default: generate from time)")
 parser.add_argument("--temperature", type=float, default=1.0, help="softmax temperature used when --sampling_mode=stochastic")
 
 args = parser.parse_args()
@@ -68,26 +67,26 @@ def resolve_priority(num_classes):
     return list(range(num_classes - 1, 0, -1))
 
 
-def sync_rps_feature_dict(cfg, config_path):
-    dict_rel_path = cfg.get('rps_feat2idx_path')
+def sync_rpp_feature_dict(cfg, config_path):
+    dict_rel_path = cfg.get('rpp_feat2idx_path')
     if not dict_rel_path:
         return cfg
     config_dir = os.path.dirname(os.path.abspath(config_path))
     dict_path = dict_rel_path if os.path.isabs(dict_rel_path) else os.path.normpath(os.path.join(config_dir, dict_rel_path))
     if not os.path.exists(dict_path):
-        raise FileNotFoundError(f"rps_feat2idx_path not found: {dict_path}")
+        raise FileNotFoundError(f"rpp_feat2idx_path not found: {dict_path}")
     with open(dict_path, 'rb') as f:
         vocab = pickle.load(f)
     dims = {k: len(v) for k, v in vocab.items()}
-    feature_dict = cfg.setdefault('rps_feature_dict', {})
-    selected = cfg.get('rps_feature_selected', []) or []
+    feature_dict = cfg.setdefault('rpp_feature_dict', {})
+    selected = cfg.get('rpp_feature_selected', []) or []
     missing = [feat for feat in selected if feat not in dims and feat != 'global_pos']
     if missing:
         raise KeyError(f"Features {missing} missing from {dict_path}")
     for feat in selected:
         if feat in dims:
             feature_dict[feat] = dims[feat]
-    if 'cadence_tag' in cfg.get('rps_feature_all', []) and 'cadence_tag' in dims:
+    if 'cadence_tag' in cfg.get('rpp_feature_all', []) and 'cadence_tag' in dims:
         feature_dict['cadence_tag'] = dims['cadence_tag']
     return cfg
 
@@ -167,18 +166,9 @@ def top_k_top_p_filtering(logits, top_k=0, top_p=0.0, filter_value=-float('Inf')
         
     return logits
 
-def setup_seed(seed):
-    """Configure random seeds; return the resolved seed for logging."""
-    if seed is None:
-        seed = time.time_ns() & 0xFFFFFFFF
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-    random.seed(seed)
-    np.random.seed(seed % (2**32 - 1))
-    return seed
 
-
+class EquivalenceTracker:
+    """GPU-friendly equivalence tracker implemented via label propagation."""
     def __init__(self, max_nodes, device):
         self.device = device
         self.max_nodes = max_nodes
@@ -224,9 +214,9 @@ class FeatureInferenceDataset(torch.utils.data.Dataset):
         data = self.data_list[index]
         # Tensorize numpy arrays if present
         
-        # rps_feat is long
-        if isinstance(data.get('rps_feat'), np.ndarray):
-            data['rps_feat'] = torch.from_numpy(data['rps_feat']).long()
+        # rpp_feat is long
+        if isinstance(data.get('rpp_feat'), np.ndarray):
+            data['rpp_feat'] = torch.from_numpy(data['rpp_feat']).long()
         
        
         if isinstance(data.get('condition'), np.ndarray):
@@ -234,8 +224,8 @@ class FeatureInferenceDataset(torch.utils.data.Dataset):
             if data['condition'].dtype in [torch.int32, torch.int16]:
                 data['condition'] = data['condition'].long()
 
-        if isinstance(data.get('rps_mask'), np.ndarray):
-             data['rps_mask'] = torch.from_numpy(data['rps_mask']).float()
+        if isinstance(data.get('rpp_mask'), np.ndarray):
+             data['rpp_mask'] = torch.from_numpy(data['rpp_mask']).float()
 
         if isinstance(data.get('note_feat'), np.ndarray):
              data['note_feat'] = torch.from_numpy(data['note_feat']).long()
@@ -279,19 +269,11 @@ def apply_forced_classes(final_classes, required_rp, required_mc, forced_indices
 
 
 def main():
-    # --- Constraint Switches ---
-    ENABLE_ANTI_ROLLBACK = True # If True, apply strong penalties to prevent short durations and encourage longer notes, to mitigate potential "collapse" into very short notes.
+    
+    # Constrained Decoding
+    ENABLE_ANTI_ROLLBACK = True 
     ENABLE_MC_RP_CONSISTENCY = True
-    ENABLE_NON_OVERLAP = True # If True, prevent duration from exceeding (next_pos - cur_pos)
-    ENABLE_POS_CONSTRAINTS = False # [New Switch] Control position boosting/penalty
-    ENABLE_DUR_CONSTRAINTS = False # [New Switch] Control duration boosting/penalty
-    ENABLE_RP_CONSTRAINTS = False # [New Switch] Control rhythm pattern boosting/penalty
-    ENABLE_MC_CONSTRAINTS = False # [New Switch] Control melody contour boosting/penalty
-    ENABLE_PR_CONSTRAINTS = False # [New Switch] Control pitch region constraints (Mask low pitch)
-    # ---------------------------
-
-    resolved_seed = setup_seed(args.seed)
-    print(f"[Seed] Using seed {resolved_seed}")
+    ENABLE_NON_OVERLAP = True 
 
     # Arg
     if args.expdir == "":
@@ -315,7 +297,7 @@ def main():
     CONFIG_PATH_ABS = os.path.abspath(CONFIG_PATH)
     with open(CONFIG_PATH_ABS, 'r') as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
-    config_f = sync_rps_feature_dict(config, CONFIG_PATH_ABS)
+    config_f = sync_rpp_feature_dict(config, CONFIG_PATH_ABS)
     
 
     # Device
@@ -327,24 +309,24 @@ def main():
 
 
     # Data
-    if args.mode == 'feature':
-        inference_dataset = FeatureInferenceDataset(config_f, input_pkl)
+
+    inference_dataset = FeatureInferenceDataset(config_f, input_pkl)
     
     inference_dataloader = DataLoader(dataset=inference_dataset, batch_size=1, shuffle=False, drop_last=True)
 
     # Model
 
     if args.mode == 'feature' or args.mode == 'all':
-        model_f = GraphTransformer(cfg=config_f).to(device)
+        model_f = RPPTransformer(cfg=config_f).to(device)
         model_f.load_state_dict(torch.load(config['best_model_path_f'], map_location=device))
         
         # [Fix] Handle mismatch between checkpoint start_token_vector and current config
-        if len(model_f.rps_feature_selected) != model_f.start_token_vector.shape[0]:
-            print(f"[Warning] Mismatch in start_token_vector size: Checkpoint {model_f.start_token_vector.shape[0]} vs Config {len(model_f.rps_feature_selected)}. Re-initializing start_token_vector.")
+        if len(model_f.rpp_feature_selected) != model_f.start_token_vector.shape[0]:
+            print(f"[Warning] Mismatch in start_token_vector size: Checkpoint {model_f.start_token_vector.shape[0]} vs Config {len(model_f.rpp_feature_selected)}. Re-initializing start_token_vector.")
             start_tokens = []
-            for feat_name in model_f.rps_feature_selected:
-                if feat_name in model_f.rps_feature_dim_dict:
-                    vocab = int(model_f.rps_feature_dim_dict[feat_name])
+            for feat_name in model_f.rpp_feature_selected:
+                if feat_name in model_f.rpp_feature_dim_dict:
+                    vocab = int(model_f.rpp_feature_dim_dict[feat_name])
                 else:
                     print(f"Warning: Feature {feat_name} not found in dim_dict, using default size 1.")
                     vocab = 1
@@ -356,7 +338,7 @@ def main():
         rp_note_counts = None
         try:
            
-            dict_path = config_f.get('rps_feat2idx_path', 'DataProcess/feat2idx_rps.pkl')
+            dict_path = config_f.get('rpp_feat2idx_path', 'DataProcess/feat2idx_rpp.pkl')
             with open(dict_path, 'rb') as f_map:
                 map_data = pickle.load(f_map)
             
@@ -410,10 +392,10 @@ def main():
             if num_song >= config['num_song']:
                 break
             
-            tgt = batch['rps_feat'].to(device)
-            rps_mask = batch['rps_mask'].to(device)
+            tgt = batch['rpp_feat'].to(device)
+            rpp_mask = batch['rpp_mask'].to(device)
 
-            if tgt.shape[-1] == 6 and len(model_f.rps_feature_selected) == 5 and 'global_pos' in model_f.rps_feature_selected:
+            if tgt.shape[-1] == 6 and len(model_f.rpp_feature_selected) == 5 and 'global_pos' in model_f.rpp_feature_selected:
                 bar = tgt[..., 0]
                 pos = tgt[..., 1]
                 
@@ -435,7 +417,7 @@ def main():
                 F_dim = tgt.shape[2]
                 
                 # Retrieve dimensions from model config
-                feat_dims = [model_f.rps_feature_dim_dict[f] for f in model_f.rps_feature_selected]
+                feat_dims = [model_f.rpp_feature_dim_dict[f] for f in model_f.rpp_feature_selected]
                 # Start token is typically the last index (dim-1) for each feature
                 start_indices = [d - 1 for d in feat_dims]
                 
@@ -443,9 +425,9 @@ def main():
                 tgt = start_token_vec.expand(B, -1, -1)
 
             # Pre-calculate feature indices for splitting
-            feature_size = [model_f.rps_feature_dim_dict[f] for f in model_f.rps_feature_selected]
+            feature_size = [model_f.rpp_feature_dim_dict[f] for f in model_f.rpp_feature_selected]
             div_index = [0] + [sum(feature_size[:i+1]) for i in range(len(feature_size))]
-            feat_ranges = {f: (div_index[i], div_index[i+1]) for i, f in enumerate(model_f.rps_feature_selected)}
+            feat_ranges = {f: (div_index[i], div_index[i+1]) for i, f in enumerate(model_f.rpp_feature_selected)}
             gp_range = feat_ranges.get('global_pos')
             
             # Forward
@@ -503,23 +485,6 @@ def main():
         
                     temp = 0.95
                     
-                    
-                    if ENABLE_POS_CONSTRAINTS:
-                        g_indices = torch.arange(vocab_size, device=device)
-                        local_pos = (g_indices - 1) % 16
-                        
-                        # Strong beats: 0, 4, 8, 12
-                        is_strong = (local_pos % 4 == 0) 
-                        # Weak tail / Chaos: 15 (Pos 16)
-                        is_weak_tail = (local_pos == 15) 
-                        
-                        is_strong_expanded = is_strong.view(1, 1, -1)
-                        is_weak_tail_expanded = is_weak_tail.view(1, 1, -1)
-                        
-                        # Apply Boost
-                        gp_logits = torch.where(is_strong_expanded, gp_logits + 11.0, gp_logits)
-                        # Apply Penalty
-                        gp_logits = torch.where(is_weak_tail_expanded, gp_logits - 25.0, gp_logits)
 
                     scaled_logits = gp_logits / temp
                     # Using Nucleus Sampling (Top-P) = 0.9 + Top-K = 20 for position
@@ -561,7 +526,7 @@ def main():
                 idx_mc = model_f.feature_name_to_idx['melody_contour']
 
                 for feat in feature_order:
-                    if feat not in model_f.rps_feature_selected:
+                    if feat not in model_f.rpp_feature_selected:
                         continue
                     
                     f_idx = model_f.feature_name_to_idx[feat]
@@ -607,31 +572,6 @@ def main():
                                 block_mask[:, :, :valid_len] = ~valid_indices_mask[:, :, :valid_len]
                                 block_mask[:, :, 0] = True 
 
-                            # --- [Added] RP Manual Penalty (Anti-Mode Collapse) ---
-                            if feat == 'rhythm_pattern' and ENABLE_RP_CONSTRAINTS:
-                                # Penalize RP=5 (Index 5)
-                                if feat_logits.shape[-1] > 5:
-                                    val = feat_logits[..., 5]
-                                    # If logit > 0, subtract. If logit < 0, subtract more. (Make it much more negative)
-                                    feat_logits[..., 5] = val - 3 # Heavy penalty
-
-                            # --- [Added] MC Manual Penalty (Anti-Mode Collapse: 5, 7, 13) ---
-                            if feat == 'melody_contour' and ENABLE_MC_CONSTRAINTS:
-                                
-                                # Penalize Index 5
-                                if feat_logits.shape[-1] > 5:
-                                    val = feat_logits[..., 5]
-                                    feat_logits[..., 5] = val - 1.5 # Heavy penalty
-                                
-                                # Penalize Index 7
-                                if feat_logits.shape[-1] > 7:
-                                    val = feat_logits[..., 7]
-                                    feat_logits[..., 7] = val - 1.5 # Heavy penalty
-                                    
-                                # Penalize Index 13
-                                if feat_logits.shape[-1] > 13:
-                                    val = feat_logits[..., 13]
-                                    feat_logits[..., 13] = val - 1.5 # Heavy penalty
 
                             if block_mask.any():
                                 feat_logits = feat_logits.masked_fill(block_mask, -float('inf'))
@@ -713,7 +653,7 @@ def main():
                 locked_next_pos = pos_plus1_idx # Lock for next iter
                 
                 # --- Step 5: Sample Duration (Constrained) ---
-                if 'duration' in model_f.rps_feature_selected:
+                if 'duration' in model_f.rpp_feature_selected:
                     delta_constraint = (pos_plus1_idx - next_pos_idx).clamp(min=1)
                     
                     head_dur = model_f.feature_heads['duration']
@@ -737,20 +677,6 @@ def main():
                     
                     d_biased = d_scaled.clone()
                     
-                    if ENABLE_DUR_CONSTRAINTS:
-
-                        
-                        vocab_size = d_biased.shape[-1]
-                        d_idx = torch.arange(vocab_size, device=device)
-                        
-                        is_short = (d_idx <= 2) & (d_idx > 0)
-                        is_long = (d_idx >= 9)
-                        is_collapse_mode = (d_idx == 11)  #| (d_idx == 13) | (d_idx == 15)
-                        
-                        
-                        d_biased[..., is_collapse_mode] -= 3.0 # Extra Penalty for 11 and 13
-
-
                     # Critical Fix: Apply mask AGAIN on biased logits to ensure boosted values don't overcome mask (though -inf should hold)
                     if mask_dur.any():
                          d_biased = d_biased.masked_fill(mask_dur, -float('inf'))
@@ -791,11 +717,11 @@ def main():
                 pass
 
             
-            rps_feat_normalize = normalize_generated_rps_feat(tgt) 
+            rpp_feat_normalize = normalize_generated_rpp_feat(tgt) 
             
             # global_pos is at index 0. (bar-1)*16 + (pos-1) + 1
-            g_pos = rps_feat_normalize[:, :, 0]
-            others = rps_feat_normalize[:, :, 1:]
+            g_pos = rpp_feat_normalize[:, :, 0]
+            others = rpp_feat_normalize[:, :, 1:]
             
             # Handle SOS (val=0) and invalid logic
             valid_mask = (g_pos > 0)
@@ -813,7 +739,7 @@ def main():
                 bars[:, 0] = 129
                 poss[:, 0] = 17
 
-            rps_feat_decoded = torch.cat([bars.unsqueeze(-1), poss.unsqueeze(-1), others], dim=-1)
+            rpp_feat_decoded = torch.cat([bars.unsqueeze(-1), poss.unsqueeze(-1), others], dim=-1)
 
             rp_idx_in_tgt = model_f.feature_name_to_idx.get('rhythm_pattern')
             mc_idx_in_tgt = model_f.feature_name_to_idx.get('melody_contour')
@@ -824,7 +750,7 @@ def main():
                 cur_dict['name'] = batch['name'][b]
                 
 
-                arr_feat = rps_feat_decoded[b].cpu().numpy().copy()
+                arr_feat = rpp_feat_decoded[b].cpu().numpy().copy()
                 
 
                 generated_len = arr_feat.shape[0]
@@ -849,7 +775,7 @@ def main():
                 
                
                 total_len = 1 + target_real_len
-                cur_dict['rps_feat'] = arr_feat[:total_len]
+                cur_dict['rpp_feat'] = arr_feat[:total_len]
                 
                 cur_dict['condition'] = np.array(batch['condition'][b].cpu())
                 cur_dict['note_feat'] = np.array(batch['note_feat'][b].cpu())
@@ -857,7 +783,7 @@ def main():
                 
                 seq_max = config['seq_max']
                 generated_steps = total_len
-                cur_dict['rps_mask'] = np.array([1]*generated_steps + [0]*(seq_max - generated_steps))
+                cur_dict['rpp_mask'] = np.array([1]*generated_steps + [0]*(seq_max - generated_steps))
 
                 output_s2g.append(cur_dict)
 
@@ -875,13 +801,13 @@ def main():
         pickle.dump(output_s2g,f)
 
 
-def normalize_generated_rps_feat(rps_feat):
+def normalize_generated_rpp_feat(rpp_feat):
     """
     Directly return the generated features without padding.
     The length should match the accumulated 'tgt' length from the autoregressive loop.
-    Since rps_feat is already [Batch, Seq, Feat], we just return it.
+    Since rpp_feat is already [Batch, Seq, Feat], we just return it.
     """
-    return rps_feat
+    return rpp_feat
 
 
 if __name__ == '__main__':

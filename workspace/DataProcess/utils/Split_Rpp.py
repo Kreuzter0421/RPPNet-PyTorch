@@ -6,7 +6,7 @@ import os
 import collections
 import re
 from bisect import bisect_right
-from .RPS_Detection import RPS_Detection
+from .RPP_Detection import RPP_Detection
 import shutil
 from time import time
 from tqdm import tqdm
@@ -239,14 +239,14 @@ def detect_song_key(midi_obj, note_list):
     return estimate_key_from_notes(note_list)
 
 
-def classify_cadence_for_rps(rps, key_info):
-    if key_info is None or not rps.rps:
+def classify_cadence_for_rpp(rpp, key_info):
+    if key_info is None or not rpp.rpp:
         return 'non_cadence'
     tonic_pc = key_info['tonic_pc']
     dominant_pc = (tonic_pc + 7) % 12
     leading_pc = (tonic_pc - 1) % 12
-    note_pcs = [note.pitch % 12 for note in rps.rps]
-    final_note = rps.rps[-1]
+    note_pcs = [note.pitch % 12 for note in rpp.rpp]
+    final_note = rpp.rpp[-1]
     final_pc = final_note.pitch % 12
     contains_dominant = dominant_pc in note_pcs
     contains_leading = leading_pc in note_pcs
@@ -259,28 +259,28 @@ def classify_cadence_for_rps(rps, key_info):
     return 'non_cadence'
 
 
-def annotate_cadence_tags(rps_sequence, key_info):
-    if not rps_sequence:
+def annotate_cadence_tags(rpp_sequence, key_info):
+    if not rpp_sequence:
         return
     phrase_groups = collections.defaultdict(list)
     fallback_group = []
-    for idx, rps in enumerate(rps_sequence):
-        if not hasattr(rps, 'cadence_tag'):
-            rps.cadence_tag = 'non_cadence'
-        phrase_idx = getattr(rps, 'phrase_index', None)
+    for idx, rpp in enumerate(rpp_sequence):
+        if not hasattr(rpp, 'cadence_tag'):
+            rpp.cadence_tag = 'non_cadence'
+        phrase_idx = getattr(rpp, 'phrase_index', None)
         if phrase_idx is None:
-            fallback_group.append((idx, rps))
+            fallback_group.append((idx, rpp))
         else:
-            phrase_groups[phrase_idx].append((idx, rps))
+            phrase_groups[phrase_idx].append((idx, rpp))
     if not phrase_groups and fallback_group:
         phrase_groups[-1] = fallback_group
     for group in phrase_groups.values():
         if not group:
             continue
-        for _, rps in group:
-            rps.cadence_tag = 'non_cadence'
-        _, final_rps = group[-1]
-        final_rps.cadence_tag = classify_cadence_for_rps(final_rps, key_info)
+        for _, rpp in group:
+            rpp.cadence_tag = 'non_cadence'
+        _, final_rpp = group[-1]
+        final_rpp.cadence_tag = classify_cadence_for_rpp(final_rpp, key_info)
 
 
 def assign_break_note(note_all, skeleton_note):
@@ -315,9 +315,9 @@ class Note(miditoolkit.Note):
         return f'Start:{self.start//1920+1:>2}Bar {self.start%1920*16//1920:>2}Grid  Type:{self.is_skeleton:<2},{self.is_syncopation:<3}  ' \
                f'Weight1:{self.rythm_weight-self.duration//120:<3}  Weight2:{self.rythm_weight}\n'
 
-class RPS():
-    def __init__(self,rps,number=0):
-        self.rps = rps
+class RPP():
+    def __init__(self,rpp,number=0):
+        self.rpp = rpp
         self.number = number
         self.cnt = 0
         self.mark = 0
@@ -334,64 +334,64 @@ class RPS():
             (1,): 5,
             (0,): 6
         }
-        self.token_name = 'RPS_' + str(self.rhythm_pattern2id[self.rhythm_pattern]) + '_' + str(self.melody_contour)
+        self.token_name = 'RPP_' + str(self.rhythm_pattern2id[self.rhythm_pattern]) + '_' + str(self.melody_contour)
 
 
 
     @property
     def bar(self):
-        bar = self.rps[0].start // 1920
+        bar = self.rpp[0].start // 1920
         return bar
 
     @property
     def start(self):
-        return self.rps[0].start
+        return self.rpp[0].start
 
     @property
     def end(self):
-        return self.rps[-1].end
+        return self.rpp[-1].end
 
     @property
     def position(self):
-        return self.rps[0].start % 1920
+        return self.rpp[0].start % 1920
 
     @property
     def duration(self):
-        return self.rps[-1].end - self.rps[0].start
+        return self.rpp[-1].end - self.rpp[0].start
 
     @property
     def cross_bar(self):
-        if len(self.rps)>1 and (self.rps[0].start // 1920 != self.rps[-1].start//1920):
+        if len(self.rpp)>1 and (self.rpp[0].start // 1920 != self.rpp[-1].start//1920):
             return 1
         else:
             return 0
 
     @property #节奏型
     def type(self):
-        if(len(self.rps) == 1):
-            rps = self.rps
-            return (rps[0].end - rps[0].start,0,0,0,0)
-        elif len(self.rps) == 2:
-            rps = self.rps
-            return (rps[0].end-rps[0].start,rps[1].start-rps[0].end,rps[1].end-rps[1].start,0,0)
+        if(len(self.rpp) == 1):
+            rpp = self.rpp
+            return (rpp[0].end - rpp[0].start,0,0,0,0)
+        elif len(self.rpp) == 2:
+            rpp = self.rpp
+            return (rpp[0].end-rpp[0].start,rpp[1].start-rpp[0].end,rpp[1].end-rpp[1].start,0,0)
         else:
-            rps = self.rps
-            return (rps[0].end-rps[0].start,rps[1].start-rps[0].end,rps[1].end-rps[1].start,rps[2].start-rps[1].end,rps[2].end-rps[2].start)
+            rpp = self.rpp
+            return (rpp[0].end-rpp[0].start,rpp[1].start-rpp[0].end,rpp[1].end-rpp[1].start,rpp[2].start-rpp[1].end,rpp[2].end-rpp[2].start)
 
     @property 
     def melody_contour(self):
-        return get_rps_melody_contour(note_list=self.rps)
+        return get_rpp_melody_contour(note_list=self.rpp)
 
     @property 
     def rhythm_pattern(self):
-        if len(self.rps) == 1:
-            if self.rps[0].is_break_note:       
+        if len(self.rpp) == 1:
+            if self.rpp[0].is_break_note:       
                 return tuple([1])
             else:
                 return tuple([0])
         else:
-            l = [0] * len(self.rps)
-            l[np.argmax([x.rythm_weight for x in self.rps])] = 1
+            l = [0] * len(self.rpp)
+            l[np.argmax([x.rythm_weight for x in self.rpp])] = 1
             return tuple(l)
 
     @property 
@@ -400,20 +400,20 @@ class RPS():
 
     @property 
     def pitch_region(self):
-        pitch_list = [int(note.pitch) for note in self.rps]
+        pitch_list = [int(note.pitch) for note in self.rpp]
         return int(sum(pitch_list)/len(pitch_list))
 
 
     def __repr__(self):
         
-        return f'Start:{self.start//1920+1:>2}Bar {self.start%1920*16//1920:>2}Grid  Contain:{len(self.rps):<2}  Rythm_structrue:{str(self.rhythm_pattern):<10}' \
+        return f'Start:{self.start//1920+1:>2}Bar {self.start%1920*16//1920:>2}Grid  Contain:{len(self.rpp):<2}  Rythm_structrue:{str(self.rhythm_pattern):<10}' \
                f' Melody:{self.melody_contour:<2}'
 
 class RP():
-    def __init__(self,rps_list):
-        self.rps_list = rps_list
-        self.start = rps_list[0].start
-        self.end = rps_list[-1].end
+    def __init__(self,rpp_list):
+        self.rpp_list = rpp_list
+        self.start = rpp_list[0].start
+        self.end = rpp_list[-1].end
         self.mark = 0
         self.token_name = 'RP'
         self.token_type = [0,0,0]
@@ -421,14 +421,14 @@ class RP():
 
     def __repr__(self):
 
-        rps_string = ''
-        for rps in self.rps_list:
-            rps_string += f'RPS_ID:{rps.number} \n'
+        rpp_string = ''
+        for rpp in self.rpp_list:
+            rpp_string += f'RPP_ID:{rpp.number} \n'
 
         return f'Start:[Bar:{self.start // 1920:>2d},Position:{(self.start % 1920) * 16 // 1920:>2d}]      '\
                f'End:[Bar:{self.end // 1920:>2d},Position:{(self.end % 1920) * 16 // 1920:>2d}]\n' \
-               f'{rps_string}'\
-               f'Contain:{len(self.rps_list)}'
+               f'{rpp_string}'\
+               f'Contain:{len(self.rpp_list)}'
 
 class P():
     def __init__(self,start,end):
@@ -457,7 +457,7 @@ def data_cleaner_batch(root,function_dict,tgt_root=None):
                 'clean_drumMidi': False,
                 'split_1920ticks':False,
                 'clean_shortMidi':False,
-                'RPSdetect_compatibility_check':False,
+                'RPPdetect_compatibility_check':False,
                 'note_amount_check': False,
                 'clean_overlapNote_part':False,
                 'rename':False}
@@ -609,15 +609,15 @@ def data_cleaner_batch(root,function_dict,tgt_root=None):
         print('Deleted Midi:')
         print(*shortmidi, sep = '\n')
 
-    # [6] RPSdetect_compatibility_check
-    if function['RPSdetect_compatibility_check']:
-        print('\n----------------------------\n# RPSdetect_compatibility_check START #')
+    # [6] RPPdetect_compatibility_check
+    if function['RPPdetect_compatibility_check']:
+        print('\n----------------------------\n# RPPdetect_compatibility_check START #')
 
         deletmidi = []
         file_name_list = [f for f in os.listdir(work_root) if '.mid' in f]
         file_path_list = [os.path.join(work_root, f) for f in file_name_list]
         for midipath in tqdm(file_path_list):
-            m = RPS_Detection(midipath)
+            m = RPP_Detection(midipath)
             t1 = time()
             try:
                 m.all_steps()
@@ -727,9 +727,9 @@ def print_RP(RP_list=None):
     RP_list = RP_list
     for i,rp in enumerate(RP_list):
         print(f'--------------------------- RP{i} -----------------------------')
-        print(f'START = {rp.start : <8d}       END = {rp.end : <8d}      CONTAIN = {len(rp.rps_list) : <4d}')
-        for rps in rp.rps_list:
-            print(rps)
+        print(f'START = {rp.start : <8d}       END = {rp.end : <8d}      CONTAIN = {len(rp.rpp_list) : <4d}')
+        for rpp in rp.rpp_list:
+            print(rpp)
 
 # split_midi_file_by_1920ticks
 def split_midi_1920ticks(root):
@@ -770,15 +770,15 @@ def split_midi_1920ticks(root):
 
         os.remove(midipath)
 
-# get rps [[note1,note2] ,[note1,note2,note3]...]
-def get_rpslist_raw(midipath = None):
+# get rpp [[note1,note2] ,[note1,note2,note3]...]
+def get_rpplist_raw(midipath = None):
     if midipath == None or midipath[-4:] != '.mid':
         return
 
-    m = RPS_Detection(midi_path=midipath)
-    rps_list,_ = m.all_steps()
+    m = RPP_Detection(midi_path=midipath)
+    rpp_list,_ = m.all_steps()
 
-    return rps_list
+    return rpp_list
 
 # quantify single_track -> melody
 def quntify_file(dir=None):
@@ -841,22 +841,22 @@ def grid_quantify(root,tgt_root = '',extend_word=''):
         print(f'{f} Success!')
 
 # Similarity
-def rps_similarity(section_list): # section_list: [  section1[[rps1],[rps2],[rps3],...],  section2[[rps1],[rps2],[rps3],...]  ]
-    # section_all.section.rps[theme_similarity,pre_similarity]
+def rpp_similarity(section_list): # section_list: [  section1[[rpp1],[rpp2],[rpp3],...],  section2[[rpp1],[rpp2],[rpp3],...]  ]
+    # section_all.section.rpp[theme_similarity,pre_similarity]
     similarity_info = []
     for i in range(len(section_list)):  
         cur_section = []
         section_now = section_list[i]
-        for rps, j in zip(section_now, range(len(section_now))):
+        for rpp, j in zip(section_now, range(len(section_now))):
             if i == 0 and j == 0:
-                cur_rps = [1, 0]
+                cur_rpp = [1, 0]
             elif i != 0 and j == 0:
-                cur_rps = similarity_of_twoVector(rps, section_list[i - 1][0], rps)
+                cur_rpp = similarity_of_twoVector(rpp, section_list[i - 1][0], rpp)
             else:
-                cur_rps = similarity_of_twoVector(section_now[0], section_now[j - 1], rps)
-            cur_section.append(cur_rps)
+                cur_rpp = similarity_of_twoVector(section_now[0], section_now[j - 1], rpp)
+            cur_section.append(cur_rpp)
         similarity_info.append(cur_section)
-    print('**similarity_rps**')
+    print('**similarity_rpp**')
     pprint.pprint(similarity_info)
     return similarity_info
 
@@ -872,45 +872,45 @@ def similarity_of_twoVector(vector_theme, vector_pre, vector_origin):
     return [1.0 * simi1, 1.0 * simi2]
 
 ## similarity-theme-only
-def similarity_theme(rps_theme,rps_list): # rps_list: [[rps1],[rps2],[rps3],....]
-    vector_theme = np.array(rps_theme)
-    lenth_theme = np.linalg.norm(rps_theme)
+def similarity_theme(rpp_theme,rpp_list): # rpp_list: [[rpp1],[rpp2],[rpp3],....]
+    vector_theme = np.array(rpp_theme)
+    lenth_theme = np.linalg.norm(rpp_theme)
     similarity = []
-    for rps_now in rps_list:
-        vector_now = np.array(rps_now)
-        lenth_now = np.linalg.norm(rps_now)
+    for rpp_now in rpp_list:
+        vector_now = np.array(rpp_now)
+        lenth_now = np.linalg.norm(rpp_now)
         simi = round(vector_theme.dot(vector_now) / (lenth_theme * lenth_now), 3)
         similarity.append(simi)
-        print(rps_theme,rps_now,simi)
+        print(rpp_theme,rpp_now,simi)
 
     return similarity
 
-# rps_cnt_dic
-def rps_cnt_dic(section_list):
+# rpp_cnt_dic
+def rpp_cnt_dic(section_list):
     dic = {}
-    for rps in section_list:
-        currps = ()
-        if len(rps) == 2 :
-            currps = (rps[0].end-rps[0].start,rps[1].start-rps[0].end,rps[1].end-rps[1].start,0,0)
-        elif len(rps) == 3:
-            currps = (rps[0].end-rps[0].start,rps[1].start-rps[0].end,rps[1].end-rps[1].start,rps[2].start-rps[1].end,rps[2].end-rps[2].start)
+    for rpp in section_list:
+        currpp = ()
+        if len(rpp) == 2 :
+            currpp = (rpp[0].end-rpp[0].start,rpp[1].start-rpp[0].end,rpp[1].end-rpp[1].start,0,0)
+        elif len(rpp) == 3:
+            currpp = (rpp[0].end-rpp[0].start,rpp[1].start-rpp[0].end,rpp[1].end-rpp[1].start,rpp[2].start-rpp[1].end,rpp[2].end-rpp[2].start)
 
-        if currps in  dic.keys():
-            dic[currps] += 1
+        if currpp in  dic.keys():
+            dic[currpp] += 1
         else:
-            dic[currps] = 1
+            dic[currpp] = 1
 
     return dic
 
 # normalize
 def normalize(section):
-    rps_list = []
-    for rps in section:
-        if len(rps) == 2:
-            rps_list.append([rps[0].end-rps[0].start,rps[1].start-rps[0].end,rps[1].end-rps[1].start,0,0])
-        elif len(rps) == 3:
-            rps_list.append([rps[0].end-rps[0].start,rps[1].start-rps[0].end,rps[1].end-rps[1].start,rps[2].start-rps[1].end,rps[2].end-rps[2].start])
-    return rps_list
+    rpp_list = []
+    for rpp in section:
+        if len(rpp) == 2:
+            rpp_list.append([rpp[0].end-rpp[0].start,rpp[1].start-rpp[0].end,rpp[1].end-rpp[1].start,0,0])
+        elif len(rpp) == 3:
+            rpp_list.append([rpp[0].end-rpp[0].start,rpp[1].start-rpp[0].end,rpp[1].end-rpp[1].start,rpp[2].start-rpp[1].end,rpp[2].end-rpp[2].start])
+    return rpp_list
 
 # write_midi
 def writemidi(note_list,savepath):
@@ -948,30 +948,30 @@ def get_phrase_grid(markers=None,max_tick = None):
     return [x.time for x in markers] + [max_tick]
 
 # Split [Wikifornia Version]
-def split_rps_Wiki(midipath=None,ratio=0.5):
+def split_rpp_Wiki(midipath=None,ratio=0.5):
     if midipath == None:
         return
-    m = RPS_Detection(midi_path=midipath)
+    m = RPP_Detection(midi_path=midipath)
     section_list = [m.all_steps()[0]]
     skeleton_note = []
     color_note = []
 
     # section
     for section in section_list:
-        cnt_dic = rps_cnt_dic(section)
-        rps_list = normalize(section=section)
+        cnt_dic = rpp_cnt_dic(section)
+        rpp_list = normalize(section=section)
 
-        # rps_theme
-        rps_theme = []
+        # rpp_theme
+        rpp_theme = []
         max_cnt = 0
         for key,v in cnt_dic.items():
             if v > max_cnt:
-                rps_theme = list(key)
+                rpp_theme = list(key)
                 max_cnt = v
-        print('主题RPS:',rps_theme)
+        print('主题RPP:',rpp_theme)
 
         # similarity
-        similarity = similarity_theme(rps_theme=rps_theme,rps_list=rps_list)
+        similarity = similarity_theme(rpp_theme=rpp_theme,rpp_list=rpp_list)
 
         # save note
         for i,simi in enumerate(similarity):
@@ -986,39 +986,39 @@ def split_rps_Wiki(midipath=None,ratio=0.5):
     return skeleton_note
 
 # Split [Zhpop Version] 
-def split_rps_Zhpop(midipath=None):
+def split_rpp_Zhpop(midipath=None):
     if midipath == None or midipath[-4:] != '.mid':
         return
 
     print('---------------------------------------\n',midipath)
-    m = RPS_Detection(midi_path=midipath)
+    m = RPP_Detection(midi_path=midipath)
     midi_obj = miditoolkit.MidiFile(midipath)
     rest_threshold = compute_dynamic_rest_threshold(midi_obj)
     rest_threshold = compute_dynamic_rest_threshold(midi_obj)
 
-    # get section_rps list
+    # get section_rpp list
     new_marker,section_grid = get_section_grid(midi_obj.markers,max_tick=midi_obj.max_tick)
-    rps_list,_ = m.all_steps()
+    rpp_list,_ = m.all_steps()
     section = [[] for _ in range(len(new_marker))]
 
-    for rps in rps_list:
-        rps_start = rps[0].start
-        rps_end = rps[-1].end
+    for rpp in rpp_list:
+        rpp_start = rpp[0].start
+        rpp_end = rpp[-1].end
         for index,start,end in zip(range(len(new_marker)),section_grid[:-1],section_grid[1:]):
-            if rps_start>=start and rps_end <= end:
-                section[index].append(rps)
+            if rpp_start>=start and rpp_end <= end:
+                section[index].append(rpp)
                 break
-            elif rps_start < start and rps_end > start:
-                if (rps_start + rps_end ) / 2 > start:
-                    section[index].append(rps)
+            elif rpp_start < start and rpp_end > start:
+                if (rpp_start + rpp_end ) / 2 > start:
+                    section[index].append(rpp)
                 else:
-                    section[index-1].append(rps)
+                    section[index-1].append(rpp)
                 break
-            elif rps_start < end and rps_end > end:
-                if (rps_start + rps_end ) / 2 < end:
-                    section[index].append(rps)
+            elif rpp_start < end and rpp_end > end:
+                if (rpp_start + rpp_end ) / 2 < end:
+                    section[index].append(rpp)
                 else:
-                    section[index+1].append(rps)
+                    section[index+1].append(rpp)
                 break
 
     # for i in range(len(new_marker)):
@@ -1028,38 +1028,38 @@ def split_rps_Zhpop(midipath=None):
     print('new_marker',new_marker)
     print('Section_grid: ',section_grid)
 
-    rps_need = []
+    rpp_need = []
     # split
     for sec in section:
         if len(sec) == 0:
             continue
-        cnt_dic = rps_cnt_dic(sec)
-        rps_list = normalize(section=sec)
-        pprint.pprint(rps_list)
+        cnt_dic = rpp_cnt_dic(sec)
+        rpp_list = normalize(section=sec)
+        pprint.pprint(rpp_list)
 
-        # rps_theme
-        rps_theme = []
+        # rpp_theme
+        rpp_theme = []
         max_cnt = 0
         for key,v in cnt_dic.items():
             if v > max_cnt:
-                rps_theme = list(key)
+                rpp_theme = list(key)
                 max_cnt = v
 
 
-        # rps_need
-        for i,rps in enumerate(rps_list):
-            if rps == rps_theme:
-                rps_need.append(sec[i])
+        # rpp_need
+        for i,rpp in enumerate(rpp_list):
+            if rpp == rpp_theme:
+                rpp_need.append(sec[i])
 
-    # print(rps_need)
+    # print(rpp_need)
     midi_obj.instruments.clear()
     new_track = miditoolkit.Instrument(program=0,name='melody')
-    for rps in rps_need:
-        for note in rps:
+    for rpp in rpp_need:
+        for note in rpp:
             new_track.notes.append(note)
     midi_obj.instruments.append(new_track)
 
-    out_path = midipath[:-4] + '_rps.mid'
+    out_path = midipath[:-4] + '_rpp.mid'
     midi_obj.dump(out_path)
 
     return
@@ -1074,76 +1074,76 @@ def split_RP_v1(midipath = None,write_log=True):
     print('---------------------------------------\n', midipath)
     midi_obj = miditoolkit.MidiFile(midipath)
 
-    # rps_list_raw
-    rps_list_raw = get_rpslist_raw(midipath=midipath)
-    print('rps_list_raw:')
-    print(rps_list_raw)
+    # rpp_list_raw
+    rpp_list_raw = get_rpplist_raw(midipath=midipath)
+    print('rpp_list_raw:')
+    print(rpp_list_raw)
 
     # phrase
     phrase_grid = get_phrase_grid(midi_obj.markers,max_tick=midi_obj.max_tick)
     ## 240tick rest
-    for i in range(len(rps_list_raw)-1):
-        pre_end = rps_list_raw[i][-1].end
-        aft_start = rps_list_raw[i][0].start
+    for i in range(len(rpp_list_raw)-1):
+        pre_end = rpp_list_raw[i][-1].end
+        aft_start = rpp_list_raw[i][0].start
         if aft_start - pre_end >=240:
             phrase_grid.append(pre_end)
     sorted(phrase_grid)
     print('phrase_grid:',phrase_grid)
 
-    # RPS_list
-    RPS_list = [RPS(rps=x) for x in rps_list_raw]
-    # print('RPS_list:',RPS_list)
+    # RPP_list
+    RPP_list = [RPP(rpp=x) for x in rpp_list_raw]
+    # print('RPP_list:',RPP_list)
 
     # type_number & type_cnt
-    type_cnt = collections.Counter([x.type for x in RPS_list])
+    type_cnt = collections.Counter([x.type for x in RPP_list])
     print('type_cnt: ',type_cnt)
     type_number = {key:number for number,key in enumerate(type_cnt.keys())}
     # print('type_number: ')
     # pprint.pprint(type_number)
 
 
-    for Rps in RPS_list:
-        Rps.cnt = type_cnt[Rps.type]
-        Rps.number = type_number[Rps.type]
-    # print('RPS_list: ')
-    # for rps in RPS_list:
-    #     print(rps,'\n')
+    for Rpp in RPP_list:
+        Rpp.cnt = type_cnt[Rpp.type]
+        Rpp.number = type_number[Rpp.type]
+    # print('RPP_list: ')
+    # for rpp in RPP_list:
+    #     print(rpp,'\n')
 
 
-    phrase_RPS_raw = [[] for _ in range(len(phrase_grid)-1)]
-    for rps in RPS_list:
-        rps_start = rps.start
-        rps_end = rps.end
+    phrase_RPP_raw = [[] for _ in range(len(phrase_grid)-1)]
+    for rpp in RPP_list:
+        rpp_start = rpp.start
+        rpp_end = rpp.end
         for index, start, end in zip(range(len(phrase_grid)-1), phrase_grid[:-1], phrase_grid[1:]):
-            if rps_start>=start and rps_end <= end:
-                phrase_RPS_raw[index].append(rps)
+            if rpp_start>=start and rpp_end <= end:
+                phrase_RPP_raw[index].append(rpp)
                 break
-            elif rps_start < start and rps_end > start:
-                if (rps_start + rps_end ) / 2 > start:
-                    phrase_RPS_raw[index].append(rps)
+            elif rpp_start < start and rpp_end > start:
+                if (rpp_start + rpp_end ) / 2 > start:
+                    phrase_RPP_raw[index].append(rpp)
                 else:
-                    phrase_RPS_raw[index-1].append(rps)
+                    phrase_RPP_raw[index-1].append(rpp)
                 break
-            elif rps_start < end and rps_end > end:
-                if (rps_start + rps_end ) / 2 < end:
-                    phrase_RPS_raw[index].append(rps)
+            elif rpp_start < end and rpp_end > end:
+                if (rpp_start + rpp_end ) / 2 < end:
+                    phrase_RPP_raw[index].append(rpp)
                 else:
-                    phrase_RPS_raw[index+1].append(rps)
+                    phrase_RPP_raw[index+1].append(rpp)
                 break
-    phrase_RPS = []
-    for phrase in phrase_RPS_raw:
+    phrase_RPP = []
+    for phrase in phrase_RPP_raw:
         if len(phrase) >= 1:
-            phrase_RPS.append(phrase)
-    # print('phrase_RPS:', phrase_RPS)
+            phrase_RPP.append(phrase)
+    # print('phrase_RPP:', phrase_RPP)
 
  
     phrase_number = []
-    for phrase in phrase_RPS:
-        phrase_number.append([Rps.number for Rps in phrase])
+    for phrase in phrase_RPP:
+        phrase_number.append([Rpp.number for Rpp in phrase])
     print('phrase_number: ',phrase_number)
 
     # RP_cnt
-    number_list = [rps.number for rps in RPS_list]
+    number_list = [rpp.number for rpp in RPP_list]
     print('number_list: ',number_list)
 
     RP_cnt = {}
@@ -1184,16 +1184,16 @@ def split_RP_v1(midipath = None,write_log=True):
                     phrase_now = phrase_now[3:]
 
         # select RP
-        RPS_now = phrase_RPS[i]
+        RPP_now = phrase_RPP[i]
         index = 0
         for p in part:
-            RP_list.append(RP(rps_list=RPS_now[index:index+p]))
+            RP_list.append(RP(rpp_list=RPP_now[index:index+p]))
 
             # total_cnt
             if p == 2:
-                total_cnt += RP_cnt[(RPS_now[index].number,RPS_now[index+1].number)]
+                total_cnt += RP_cnt[(RPP_now[index].number,RPP_now[index+1].number)]
             else:
-                total_cnt += RP_cnt[(RPS_now[index].number, RPS_now[index+1].number,RPS_now[index+2].number)]
+                total_cnt += RP_cnt[(RPP_now[index].number, RPP_now[index+1].number,RPP_now[index+2].number)]
 
             index += p
 
@@ -1202,13 +1202,13 @@ def split_RP_v1(midipath = None,write_log=True):
 
     # write_log
     if write_log :
-        RPS_path = midipath[:-4] + '_RPS_V1.txt'
+        RPP_path = midipath[:-4] + '_RPP_V1.txt'
         RP_path = midipath[:-4] + '_RP_V1.txt'
 
-        with open (RPS_path,'w') as f:
-            for i,rps in enumerate(RPS_list):
-                print(f'--------------------------------- RPS {i} ---------------------------------',file=f)
-                print(rps,file=f)
+        with open (RPP_path,'w') as f:
+            for i,rpp in enumerate(RPP_list):
+                print(f'--------------------------------- RPP {i} ---------------------------------',file=f)
+                print(rpp,file=f)
 
         with open (RP_path,'w') as f:
             f.write(f'Total_cnt:{total_cnt}\n')
@@ -1217,7 +1217,7 @@ def split_RP_v1(midipath = None,write_log=True):
                 print(rp, file=f)
 
 
-    return RPS_list,RP_list
+    return RPP_list,RP_list
 
 # Split_RP
 def split_RP_v2(midipath = None,write_log=True):
@@ -1229,73 +1229,73 @@ def split_RP_v2(midipath = None,write_log=True):
     print('---------------------------------------\n', midipath)
     midi_obj = miditoolkit.MidiFile(midipath)
 
-    # rps_list_raw
-    rps_list_raw = get_rpslist_raw(midipath=midipath)
+    # rpp_list_raw
+    rpp_list_raw = get_rpplist_raw(midipath=midipath)
 
 
     # phrase
     phrase_grid = get_phrase_grid(midi_obj.markers,max_tick=midi_obj.max_tick)
 
-    for i in range(len(rps_list_raw)-1):
-        pre_end = rps_list_raw[i][-1].end
-        aft_start = rps_list_raw[i][0].start
+    for i in range(len(rpp_list_raw)-1):
+        pre_end = rpp_list_raw[i][-1].end
+        aft_start = rpp_list_raw[i][0].start
         if aft_start - pre_end >=240:
             phrase_grid.append(pre_end)
     sorted(phrase_grid)
     print('phrase_grid:',phrase_grid)
 
-    # RPS_list
-    RPS_list = [RPS(rps=x) for x in rps_list_raw]
-    # print('RPS_list:', RPS_list)
+    # RPP_list
+    RPP_list = [RPP(rpp=x) for x in rpp_list_raw]
+    # print('RPP_list:', RPP_list)
 
 
-    type_cnt = collections.Counter([x.type for x in RPS_list])
+    type_cnt = collections.Counter([x.type for x in RPP_list])
     print('type_cnt: ', type_cnt)
     type_number = {key: number for number, key in enumerate(type_cnt.keys())}
     # print('type_number: ')
     # pprint.pprint(type_number)
 
 
-    for Rps in RPS_list:
-        Rps.cnt = type_cnt[Rps.type]
-        Rps.number = type_number[Rps.type]
-    # print('RPS_list: ', RPS_list)
+    for Rpp in RPP_list:
+        Rpp.cnt = type_cnt[Rpp.type]
+        Rpp.number = type_number[Rpp.type]
+    # print('RPP_list: ', RPP_list)
 
 
-    phrase_RPS_raw = [[] for _ in range(len(phrase_grid) - 1)]
-    for rps in RPS_list:
-        rps_start = rps.start
-        rps_end = rps.end
+    phrase_RPP_raw = [[] for _ in range(len(phrase_grid) - 1)]
+    for rpp in RPP_list:
+        rpp_start = rpp.start
+        rpp_end = rpp.end
         for index, start, end in zip(range(len(phrase_grid) - 1), phrase_grid[:-1], phrase_grid[1:]):
-            if rps_start >= start and rps_end <= end:
-                phrase_RPS_raw[index].append(rps)
+            if rpp_start >= start and rpp_end <= end:
+                phrase_RPP_raw[index].append(rpp)
                 break
-            elif rps_start < start and rps_end > start:
-                if (rps_start + rps_end) / 2 > start:
-                    phrase_RPS_raw[index].append(rps)
+            elif rpp_start < start and rpp_end > start:
+                if (rpp_start + rpp_end) / 2 > start:
+                    phrase_RPP_raw[index].append(rpp)
                 else:
-                    phrase_RPS_raw[index - 1].append(rps)
+                    phrase_RPP_raw[index - 1].append(rpp)
                 break
-            elif rps_start < end and rps_end > end:
-                if (rps_start + rps_end) / 2 < end:
-                    phrase_RPS_raw[index].append(rps)
+            elif rpp_start < end and rpp_end > end:
+                if (rpp_start + rpp_end) / 2 < end:
+                    phrase_RPP_raw[index].append(rpp)
                 else:
-                    phrase_RPS_raw[index + 1].append(rps)
+                    phrase_RPP_raw[index + 1].append(rpp)
                 break
-    phrase_RPS = []
-    for phrase in phrase_RPS_raw:
+    phrase_RPP = []
+    for phrase in phrase_RPP_raw:
         if len(phrase) >= 1:
-            phrase_RPS.append(phrase)
+            phrase_RPP.append(phrase)
 
 
 
     phrase_number = []
-    for phrase in phrase_RPS:
-        phrase_number.append([Rps.number for Rps in phrase])
+    for phrase in phrase_RPP:
+        phrase_number.append([Rpp.number for Rpp in phrase])
     print('phrase_number: ', phrase_number)
 
     # RP_cnt
-    number_list = [rps.number for rps in RPS_list]
+    number_list = [rpp.number for rpp in RPP_list]
     print('number_list: ', number_list)
 
     RP_cnt = {}
@@ -1350,10 +1350,10 @@ def split_RP_v2(midipath = None,write_log=True):
         print('part:', part)
 
         # select RP
-        RPS_now = phrase_RPS[i]
+        RPP_now = phrase_RPP[i]
         index = 0
         for p in part:
-            RP_list.append(RP(rps_list=RPS_now[index:index + p]))
+            RP_list.append(RP(rpp_list=RPP_now[index:index + p]))
             index += p
 
         # total_cnt
@@ -1364,13 +1364,13 @@ def split_RP_v2(midipath = None,write_log=True):
 
     # write_log
     if write_log :
-        RPS_path = midipath[:-4] + '_RPS_V2.txt'
+        RPP_path = midipath[:-4] + '_RPP_V2.txt'
         RP_path = midipath[:-4] + '_RP_V2.txt'
 
-        with open (RPS_path,'w') as f:
-            for i,rps in enumerate(RPS_list):
-                print(f'--------------------------------- RPS {i} ---------------------------------',file=f)
-                print(rps,file=f)
+        with open (RPP_path,'w') as f:
+            for i,rpp in enumerate(RPP_list):
+                print(f'--------------------------------- RPP {i} ---------------------------------',file=f)
+                print(rpp,file=f)
 
         with open (RP_path,'w') as f:
             f.write(f'Total_cnt:{total_cnt}\n')
@@ -1379,24 +1379,24 @@ def split_RP_v2(midipath = None,write_log=True):
                 print(rp, file=f)
 
 
-    return RPS_list, RP_list
+    return RPP_list, RP_list
 
 
-# RPS_ryhthm_structrue
-def get_rps_rhythm_structure(token_name,rps_ryhthm_list,i):
+# RPP_ryhthm_structrue
+def get_rpp_rhythm_structure(token_name,rpp_ryhthm_list,i):
 
-    rps_ryhthm = rps_ryhthm_list[i]
+    rpp_ryhthm = rpp_ryhthm_list[i]
 
     type = '0'
-    if rps_ryhthm == [0,1]:
+    if rpp_ryhthm == [0,1]:
         type = '0'
-    elif rps_ryhthm == [0,0,1]:
+    elif rpp_ryhthm == [0,0,1]:
         type = '1'
-    elif rps_ryhthm == [1,0]:
+    elif rpp_ryhthm == [1,0]:
         type = '2'
-    elif rps_ryhthm == [1,0,0]:
+    elif rpp_ryhthm == [1,0,0]:
         type = '3'
-    elif rps_ryhthm == [0,1,0]:
+    elif rpp_ryhthm == [0,1,0]:
         type = '4'
 
     parts = token_name.split('_', 2)
@@ -1405,8 +1405,8 @@ def get_rps_rhythm_structure(token_name,rps_ryhthm_list,i):
     parts[1] = type
     return '_'.join(parts)
 
-# RPS_melody_contour
-def get_rps_melody_contour(note_list=None):
+# RPP_melody_contour
+def get_rpp_melody_contour(note_list=None):
 
     type = '0'
     dict = {(-1):'0',(1):'1',(0):'2',(-1,-1):'3',(1,1):'4',(0,0):'5',(-1,1):'6',(1,-1):'7',(0,1):'8',(0,-1):'9',(-1,0):'10',(1,0):'11'}
@@ -1426,46 +1426,46 @@ def get_rps_melody_contour(note_list=None):
 
     return int(type)
 
-# RPS_relation
-def get_rps_relation(rps_1,rps_2):
+# RPP_relation
+def get_rpp_relation(rpp_1,rpp_2):
 
     dict = {(-1,-1):2,(1,1):3,(1,-1):4,(1,0):4,(0,-1):4,(-1,1):5,(-1,0):5,(0,1):5,(0,0):6}
 
-    high_1 = max([x.pitch for x in rps_1])
-    low_1 = min([x.pitch for x in rps_1])
-    high_2 = max([x.pitch for x in rps_2])
-    low_2 = min([x.pitch for x in rps_2])
+    high_1 = max([x.pitch for x in rpp_1])
+    low_1 = min([x.pitch for x in rpp_1])
+    high_2 = max([x.pitch for x in rpp_2])
+    low_2 = min([x.pitch for x in rpp_2])
 
     diff1 = 1 if high_1>high_2 else (-1 if high_1<high_2 else 0)
     diff2 = 1 if low_1>low_2 else (-1 if low_1<low_2 else 0)
 
     return dict[(diff1,diff2)]
 
-def graph_token_RPS_only(midipath = None,rps_outdir=None,rps_list=None):    # return -> rps_seq , vertex , edge
+def graph_token_RPP_only(midipath = None,rpp_outdir=None,rpp_list=None):    # return -> rpp_seq , vertex , edge
 
     # default contaiiner
-    rps_sequence = [] 
+    rpp_sequence = [] 
     edge = [] 
 
     
 
-    if rps_outdir == None:
+    if rpp_outdir == None:
         outpath = None
     else:
-        outpath = os.path.join(rps_outdir,os.path.basename(midipath))
+        outpath = os.path.join(rpp_outdir,os.path.basename(midipath))
 
     if midipath != None:
-        note_list,rps_list = rps_divider(midipath=midipath,outpath=outpath,algorithm='DP')
+        note_list,rpp_list = rpp_divider(midipath=midipath,outpath=outpath,algorithm='DP')
     else:
-        rps_list = rps_list
+        rpp_list = rpp_list
     node_list = ['SOS']
 
-    for i,rps in enumerate(rps_list):
-        if i == 0 and rps.start >= 240:     
+    for i,rpp in enumerate(rpp_list):
+        if i == 0 and rpp.start >= 240:     
             node_list.append('REST')
-        node_list.append(rps)
-        if i+1 <= len(rps_list)-1 :
-            if rps_list[i+1].start - rps.end >=240:
+        node_list.append(rpp)
+        if i+1 <= len(rpp_list)-1 :
+            if rpp_list[i+1].start - rpp.end >=240:
                 node_list.append('REST')
     node_list.append('EOS')
 
@@ -1480,10 +1480,10 @@ def graph_token_RPS_only(midipath = None,rps_outdir=None,rps_list=None):    # re
             elif node=='REST':
                 edge.append((i,i-1,1))
 
-        # RPS
-        if isinstance(node,RPS):
+        # RPP
+        if isinstance(node,RPP):
             # 1 note
-            if len(node.rps) == 1:
+            if len(node.rpp) == 1:
                 edge.append((i, i - 1, 1))
 
             # 2/3 note
@@ -1493,12 +1493,12 @@ def graph_token_RPS_only(midipath = None,rps_outdir=None,rps_list=None):    # re
                 
                 similarity_edge = None
                 for j in range(i-1,0,-1):
-                    if isinstance(node_list[j],RPS) and node.rhythm_pattern == node_list[j].rhythm_pattern:
+                    if isinstance(node_list[j],RPP) and node.rhythm_pattern == node_list[j].rhythm_pattern:
                         
                         offset = node.start - node_list[j].start
                         n = offset // 120
                         if n & (n - 1) == 0:
-                            relation = get_rps_relation(node.rps, node_list[j].rps)
+                            relation = get_rpp_relation(node.rpp, node_list[j].rpp)
                             if node.melody_contour!=node_list[j].melody_contour:
                                 relation += 5
                             similarity_edge = (i,j,relation)
@@ -1535,8 +1535,8 @@ def graph_token(midipath = None):
         P_list.append(P(start = start,end=end))
 
     # add RP to P
-    RPS_list,RP_list = split_RP_v1(midipath,write_log=False)
-    print('RPS_list',RPS_list)
+    RPP_list,RP_list = split_RP_v1(midipath,write_log=False)
+    print('RPP_list',RPP_list)
     print('RP_list',RP_list)
 
     for rp in RP_list:
@@ -1553,8 +1553,8 @@ def graph_token(midipath = None):
         sequence.append(p)
         for rp in p.rp_list:
             sequence.append(rp)
-            for rps in rp.rps_list:
-                sequence.append(rps)
+            for rpp in rp.rpp_list:
+                sequence.append(rpp)
 
     for i,each in enumerate(sequence):
         each.mark = i
@@ -1607,20 +1607,20 @@ def print_graph_check(seq,vertex,edge,filepath,file_index,input_file):
             elif v == 'REST':
                 f.write(f'{i:<3}:REST\n')
             else:
-                rps = seq[i]
-                cur_bar = rps.start // 1920 + 1
+                rpp = seq[i]
+                cur_bar = rpp.start // 1920 + 1
                 if cur_bar > bar_vertex :
                     bar_vertex = cur_bar
                     f.write(f'----------- Bar{bar_vertex:<2} -----------\n')
-                f.write(f'{i:<3}:{v:<8}({len(rps.rps)})\n')
+                f.write(f'{i:<3}:{v:<8}({len(rpp.rpp)})\n')
 
         f.write(f'边数量:{len(edge)}\n')
         bar_edge = 0
 
         for i,e in enumerate(edge_new):
             if not isinstance(seq[e[0]],str) and not isinstance(seq[e[1]],str):
-                rps = seq[e[0]]
-                cur_bar = rps.start // 1920 +1
+                rpp = seq[e[0]]
+                cur_bar = rpp.start // 1920 +1
                 if cur_bar > bar_edge:
                     bar_edge = cur_bar
                     f.write(f'----------- Bar{bar_edge:2} -----------\n')
@@ -1628,7 +1628,7 @@ def print_graph_check(seq,vertex,edge,filepath,file_index,input_file):
 
         print('\n')
 
-# RPS_rythm_type
+# RPP_rythm_type
 def note_ryhthm_weight(note_list):
     weight_dict = {0:5,1:1,2:2,3:1,4:3,5:1,6:2,7:1,8:4,9:1,10:2,11:1,12:3,13:1,14:2,15:1}
 
@@ -1700,7 +1700,7 @@ def note_ryhthm_weight(note_list):
         note.rythm_weight += note.duration //120
 
 
-def rps_split_accuracy(rawroot,tgtroot,logpath=None):
+def rpp_split_accuracy(rawroot,tgtroot,logpath=None):
     log = ''
     file_raw = [f for f in os.listdir(rawroot) if f[-4:] == '.mid']
     file_tgt = [f for f in os.listdir(tgtroot) if f[-4:] == '.mid']
@@ -1738,22 +1738,22 @@ def rps_split_accuracy(rawroot,tgtroot,logpath=None):
             f.write(log)
 
 
-def rps_divider(midipath,outpath=None,need_log = False,algorithm=None):
+def rpp_divider(midipath,outpath=None,need_log = False,algorithm=None):
     if algorithm is None:
         algorithm = GLOBAL_ALGORITHM
 
     # Default Container
-    rps_all = []
+    rpp_all = []
     note_all = []
-    rps2area = collections.defaultdict(int)    # {(rps.start,rps.end) : area}
-    rps_log = f'\n-------------------- {midipath} ---------------------- \n'    #记录分割结果
-    weight_log = f'\n-------------------- {midipath} ---------------------- \n' #记录rps覆盖面积
+    rpp2area = collections.defaultdict(int)    # {(rpp.start,rpp.end) : area}
+    rpp_log = f'\n-------------------- {midipath} ---------------------- \n'    #记录分割结果
+    weight_log = f'\n-------------------- {midipath} ---------------------- \n' #记录rpp覆盖面积
     note_log = f'\n-------------------- {midipath} ---------------------- \n'    #记录音符赋值
 
 
     midi_obj = miditoolkit.MidiFile(midipath)
     rest_threshold = compute_dynamic_rest_threshold(midi_obj)
-    m = RPS_Detection(midi_path=midipath)  
+    m = RPP_Detection(midi_path=midipath)  
     skeleton_bool, syncopation_bool = m.get_note_typeof_skeleton_syncopation()
 
     assert len(midi_obj.instruments[0].notes) == len(skeleton_bool) and len(skeleton_bool) == len(syncopation_bool),\
@@ -1770,47 +1770,47 @@ def rps_divider(midipath,outpath=None,need_log = False,algorithm=None):
     note_all.sort(key= lambda x:x.start)
 
     
-    rps4detect = []
+    rpp4detect = []
     for i in range(len(note_all)):
         if i+1<=len(note_all)-1:
             if note_all[i+1].start <= note_all[i].end:
-                rps4detect.append(RPS(rps=note_all[i:i+2]))
+                rpp4detect.append(RPP(rpp=note_all[i:i+2]))
         if i+2<=len(note_all)-1:
             if note_all[i+1].start <= note_all[i].end and note_all[i+2].start <= note_all[i+1].end:
-                rps4detect.append(RPS(rps=note_all[i:i+3]))
+                rpp4detect.append(RPP(rpp=note_all[i:i+3]))
 
     shape2kind = collections.defaultdict(int)       # { ((0,0,1),1) : 5 }
     
-    for i,rps in enumerate(rps4detect):
+    for i,rpp in enumerate(rpp4detect):
         find = False
         for j in range(i-1,-1,-1):
-            if rps4detect[j].shape == rps4detect[i].shape:
-                offset = rps4detect[i].start - rps4detect[j].start
+            if rpp4detect[j].shape == rpp4detect[i].shape:
+                offset = rpp4detect[i].start - rpp4detect[j].start
                 n = offset // 120
-                if n & (n - 1) == 0 and rps4detect[i].start>=rps4detect[j].end:       
+                if n & (n - 1) == 0 and rpp4detect[i].start>=rpp4detect[j].end:       
                     find = True
-                    rps4detect[i].shape_and_kind = rps4detect[j].shape_and_kind
+                    rpp4detect[i].shape_and_kind = rpp4detect[j].shape_and_kind
                     break
                 else:                       
                     continue
         if find == False:
-            shape2kind[rps.shape] += 1
-            rps.shape_and_kind = (rps.shape,shape2kind[rps.shape])
+            shape2kind[rpp.shape] += 1
+            rpp.shape_and_kind = (rpp.shape,shape2kind[rpp.shape])
     
     shape2area = collections.defaultdict(int)      #{ (((0, 1, 0), 5), 1) : 12}
-    for rps in rps4detect:
-        if len(rps.rps) == 3:
-            shape2area[rps.shape_and_kind] += len(rps.rps) * 1.4
+    for rpp in rpp4detect:
+        if len(rpp.rpp) == 3:
+            shape2area[rpp.shape_and_kind] += len(rpp.rpp) * 1.4
         else:
-            shape2area[rps.shape_and_kind] += len(rps.rps)
+            shape2area[rpp.shape_and_kind] += len(rpp.rpp)
 
    
     
 
 
 
-    for rps in rps4detect:
-        rps2area[(rps.start,rps.end)] = shape2area[rps.shape_and_kind]
+    for rpp in rpp4detect:
+        rpp2area[(rpp.start,rpp.end)] = shape2area[rpp.shape_and_kind]
 
 
     # [2]div_grid
@@ -1885,14 +1885,14 @@ def rps_divider(midipath,outpath=None,need_log = False,algorithm=None):
     # [4]proccess each phrase 
     if algorithm == 'DP':
         for i,ph in enumerate(phrase):
-            rps_log += f'\n### Div{i} BEGIN ###\n'
+            rpp_log += f'\n### Div{i} BEGIN ###\n'
 
             
             if len(ph) <= 3:
-                r = RPS(rps=ph)
+                r = RPP(rpp=ph)
                 r.phrase_index = i
-                rps_all.append(r)
-                rps_log+=f'{r} Area:{rps2area[(r.start,r.end)]}\n'
+                rpp_all.append(r)
+                rpp_log+=f'{r} Area:{rpp2area[(r.start,r.end)]}\n'
                 continue
 
             
@@ -1902,8 +1902,8 @@ def rps_divider(midipath,outpath=None,need_log = False,algorithm=None):
             dp.append(1)
             part.append([1])
             ## 1
-            initial_rps_0_1 = RPS(rps=[ph[0],ph[1]])
-            area2 = rps2area[(initial_rps_0_1.start,initial_rps_0_1.end)]
+            initial_rpp_0_1 = RPP(rpp=[ph[0],ph[1]])
+            area2 = rpp2area[(initial_rpp_0_1.start,initial_rpp_0_1.end)]
             area1 = dp[0] + 1
             if area2 >= area1:
                 dp.append(area2)
@@ -1912,11 +1912,11 @@ def rps_divider(midipath,outpath=None,need_log = False,algorithm=None):
                 dp.append(area1)
                 part.append([1,1])
             ## 2
-            initial_rps_1_2 = RPS(rps=[ph[1],ph[2]])
-            initial_rps_0_1_2 = RPS(rps = [ph[0],ph[1],ph[2]])
+            initial_rpp_1_2 = RPP(rpp=[ph[1],ph[2]])
+            initial_rpp_0_1_2 = RPP(rpp = [ph[0],ph[1],ph[2]])
             area1 = dp[1] + 1
-            area2 = dp[0] + rps2area[(initial_rps_1_2.start,initial_rps_1_2.end)]
-            area3 = rps2area[(initial_rps_0_1_2.start,initial_rps_0_1_2.end)]
+            area2 = dp[0] + rpp2area[(initial_rpp_1_2.start,initial_rpp_1_2.end)]
+            area3 = rpp2area[(initial_rpp_0_1_2.start,initial_rpp_0_1_2.end)]
             if area3>= area2 and area3 >= area1:
                 dp.append(area3)
                 part.append([3])
@@ -1928,11 +1928,11 @@ def rps_divider(midipath,outpath=None,need_log = False,algorithm=None):
                 part.append(part[1]+[1])
 
             for i in range(3,len(ph)):
-                cur_rps2 = RPS([ph[i-1],ph[i]])
-                cur_rps3 = RPS([ph[i-2],ph[i-1],ph[i]])
+                cur_rpp2 = RPP([ph[i-1],ph[i]])
+                cur_rpp3 = RPP([ph[i-2],ph[i-1],ph[i]])
                 area1 = dp[i-1] + 1
-                area2 = dp[i-2] + rps2area[(cur_rps2.start,cur_rps2.end)]
-                area3 = dp[i-3] + rps2area[(cur_rps3.start,cur_rps3.end)]
+                area2 = dp[i-2] + rpp2area[(cur_rpp2.start,cur_rpp2.end)]
+                area3 = dp[i-3] + rpp2area[(cur_rpp3.start,cur_rpp3.end)]
                 if area3 >= max(area1,area2):
                     dp.append(area3)
                     part.append(part[i-3]+[3])
@@ -1952,31 +1952,31 @@ def rps_divider(midipath,outpath=None,need_log = False,algorithm=None):
                 index += p
             segments = merge_single_note_segments(segments)
             for segment in segments:
-                r = RPS(segment)
+                r = RPP(segment)
                 r.phrase_index = i
-                rps_all.append(r)
+                rpp_all.append(r)
                 key = (segment[0].start, segment[-1].end)
-                area = 1 if len(segment) == 1 else rps2area.get(key, len(segment))
-                rps_log+=f'{r} Area:{area}\n'
+                area = 1 if len(segment) == 1 else rpp2area.get(key, len(segment))
+                rpp_log+=f'{r} Area:{area}\n'
 
     elif algorithm == 'RANDOM':
         for i, ph in enumerate(phrase):
-            rps_log += f'\n### Div{i} BEGIN ###\n'
+            rpp_log += f'\n### Div{i} BEGIN ###\n'
             
             
             if len(ph) <= 3:
-                r = RPS(rps=ph)
+                r = RPP(rpp=ph)
                 r.phrase_index = i
-                rps_all.append(r)
+                rpp_all.append(r)
                 key = (ph[0].start, ph[-1].end)
-                area = 1 if len(ph) == 1 else rps2area.get(key, len(ph))
-                rps_log += f'{r} Area:{area}\n'
+                area = 1 if len(ph) == 1 else rpp2area.get(key, len(ph))
+                rpp_log += f'{r} Area:{area}\n'
                 continue
             
             part = []
             remaining = len(ph)
             while remaining > 0:
-                choice = int(np.random.choice([1, 2, 3], p=[0.12, 0.36, 0.52]))#the rate of 1,2,3 note RPS . According to the statistics on your dataset
+                choice = int(np.random.choice([1, 2, 3], p=[0.12, 0.36, 0.52]))#the rate of 1,2,3 note RPP . According to the statistics on your dataset
                 choice = min(choice, remaining)
                 part.append(choice)
                 remaining -= choice
@@ -1990,43 +1990,43 @@ def rps_divider(midipath,outpath=None,need_log = False,algorithm=None):
             
             segments = merge_single_note_segments(segments)
             for segment in segments:
-                r = RPS(segment)
+                r = RPP(segment)
                 r.phrase_index = i
-                rps_all.append(r)
+                rpp_all.append(r)
                 key = (segment[0].start, segment[-1].end)
-                area = 1 if len(segment) == 1 else rps2area.get(key, len(segment))
-                rps_log += f'{r} Area:{area}\n'
+                area = 1 if len(segment) == 1 else rpp2area.get(key, len(segment))
+                rpp_log += f'{r} Area:{area}\n'
 
     key_info = detect_song_key(midi_obj, note_all)
-    annotate_cadence_tags(rps_all, key_info)
+    annotate_cadence_tags(rpp_all, key_info)
 
-    for i,each in enumerate(rps_all):
+    for i,each in enumerate(rpp_all):
         if i == 0:
-            for note in each.rps:
+            for note in each.rpp:
                 note.velocity = 60
         else:
             velo = 60
-            if rps_all[i-1].rps[0].velocity == 60:
+            if rpp_all[i-1].rpp[0].velocity == 60:
                 velo = 120
-            for note in each.rps:
+            for note in each.rpp:
                 note.velocity = velo
 
     
     midi_obj.instruments[0].notes.clear()
-    for each in rps_all:
-        for note in each.rps:
+    for each in rpp_all:
+        for note in each.rpp:
             midi_obj.instruments[0].notes.append(note)
 
     # [8]log
     if need_log == True:
         path = outpath if outpath != None else midipath
-        rps_log_path = os.path.join(os.path.dirname(path),'rps_log.txt')
+        rpp_log_path = os.path.join(os.path.dirname(path),'rpp_log.txt')
         note_log_path = os.path.join(os.path.dirname(path),'note_log.txt')
         weight_log_path = os.path.join(os.path.dirname(path),'weight_log.txt')
 
-        # rps_log
-        with open(rps_log_path,'a') as f:
-            f.write(rps_log)
+        # rpp_log
+        with open(rpp_log_path,'a') as f:
+            f.write(rpp_log)
 
         # note_log
         for i,ph in enumerate(phrase):
@@ -2040,9 +2040,9 @@ def rps_divider(midipath,outpath=None,need_log = False,algorithm=None):
         for i, ph in enumerate(phrase):
             weight_log+= f'\n### Div{i} ###\n'
 
-            for rps in rps4detect:
-                if rps.start>=ph[0].start and rps.end <=ph[-1].end:
-                    weight_log += f'{rps} Area:{rps2area[(rps.start, rps.end)]:<2} Shape:{str(rps.shape)}\n'
+            for rpp in rpp4detect:
+                if rpp.start>=ph[0].start and rpp.end <=ph[-1].end:
+                    weight_log += f'{rpp} Area:{rpp2area[(rpp.start, rpp.end)]:<2} Shape:{str(rpp.shape)}\n'
         with open(weight_log_path,'a') as f:
             f.write(weight_log)
 
@@ -2050,7 +2050,7 @@ def rps_divider(midipath,outpath=None,need_log = False,algorithm=None):
     if outpath != None:
         midi_obj.dump(outpath)
 
-    return note_all,rps_all
+    return note_all,rpp_all
 
 def note_weight(midipath):
 
@@ -2060,7 +2060,7 @@ def note_weight(midipath):
     
     midi_obj = miditoolkit.MidiFile(midipath)
     rest_threshold = compute_dynamic_rest_threshold(midi_obj)
-    m = RPS_Detection(midi_path=midipath)
+    m = RPP_Detection(midi_path=midipath)
     skeleton_bool, syncopation_bool = m.get_note_typeof_skeleton_syncopation()
 
     assert len(midi_obj.instruments[0].notes) == len(skeleton_bool) and len(skeleton_bool) == len(syncopation_bool),\
@@ -2079,22 +2079,22 @@ def note_weight(midipath):
     return note_all,weight_list
 
 
-def rps_divider_contain_2_3_notes(midipath,outpath=None,need_log = False,div_need=False,algorithm=None):
+def rpp_divider_contain_2_3_notes(midipath,outpath=None,need_log = False,div_need=False,algorithm=None):
     if algorithm is None:
         algorithm = GLOBAL_ALGORITHM
 
     # Default Container
-    rps_all = []
+    rpp_all = []
     note_all = []
-    rps2area = collections.defaultdict(int)    # {(rps.start,rps.end) : area}
-    rps_log = f'\n-------------------- {midipath} ---------------------- \n'    #记录分割结果
-    weight_log = f'\n-------------------- {midipath} ---------------------- \n' #记录rps覆盖面积
+    rpp2area = collections.defaultdict(int)    # {(rpp.start,rpp.end) : area}
+    rpp_log = f'\n-------------------- {midipath} ---------------------- \n'    #记录分割结果
+    weight_log = f'\n-------------------- {midipath} ---------------------- \n' #记录rpp覆盖面积
     note_log = f'\n-------------------- {midipath} ---------------------- \n'    #记录音符赋值
 
 
     midi_obj = miditoolkit.MidiFile(midipath)
     rest_threshold = compute_dynamic_rest_threshold(midi_obj)
-    m = RPS_Detection(midi_path=midipath)
+    m = RPP_Detection(midi_path=midipath)
     skeleton_bool, syncopation_bool = m.get_note_typeof_skeleton_syncopation()
 
     assert len(midi_obj.instruments[0].notes) == len(skeleton_bool) and len(skeleton_bool) == len(syncopation_bool),\
@@ -2111,38 +2111,38 @@ def rps_divider_contain_2_3_notes(midipath,outpath=None,need_log = False,div_nee
     note_all.sort(key= lambda x:x.start)
 
    
-    rps4detect = []
+    rpp4detect = []
     for i in range(len(note_all)):
         if i+1<=len(note_all)-1:
             if note_all[i+1].start <= note_all[i].end:
-                rps4detect.append(RPS(rps=note_all[i:i+2]))
+                rpp4detect.append(RPP(rpp=note_all[i:i+2]))
         if i+2<=len(note_all)-1:
             if note_all[i+1].start <= note_all[i].end and note_all[i+2].start <= note_all[i+1].end:
-                rps4detect.append(RPS(rps=note_all[i:i+3]))
+                rpp4detect.append(RPP(rpp=note_all[i:i+3]))
 
     shape2kind = collections.defaultdict(int)       # { ((0,0,1),1) : 5 }
-    for i,rps in enumerate(rps4detect):
+    for i,rpp in enumerate(rpp4detect):
         find = False
         for j in range(i-1,-1,-1):
-            if rps4detect[j].shape == rps4detect[i].shape:
-                offset = rps4detect[i].start - rps4detect[j].start
+            if rpp4detect[j].shape == rpp4detect[i].shape:
+                offset = rpp4detect[i].start - rpp4detect[j].start
                 n = offset // 120
-                if n & (n - 1) == 0 and rps4detect[i].start>=rps4detect[j].end:        
+                if n & (n - 1) == 0 and rpp4detect[i].start>=rpp4detect[j].end:        
                     find = True
-                    rps4detect[i].shape_and_kind = rps4detect[j].shape_and_kind
+                    rpp4detect[i].shape_and_kind = rpp4detect[j].shape_and_kind
                     break
                 else:                       
                     continue
         if find == False:
-            shape2kind[rps.shape] += 1
-            rps.shape_and_kind = (rps.shape,shape2kind[rps.shape])
+            shape2kind[rpp.shape] += 1
+            rpp.shape_and_kind = (rpp.shape,shape2kind[rpp.shape])
 
     shape_kind2area = collections.defaultdict(int)      #{ (((0, 1, 0), 5), 1) : 12}
-    for rps in rps4detect:
-        shape_kind2area[rps.shape_and_kind] += len(rps.rps)
+    for rpp in rpp4detect:
+        shape_kind2area[rpp.shape_and_kind] += len(rpp.rpp)
 
-    for rps in rps4detect:
-        rps2area[(rps.start,rps.end)] = shape_kind2area[rps.shape_and_kind]
+    for rpp in rpp4detect:
+        rpp2area[(rpp.start,rpp.end)] = shape_kind2area[rpp.shape_and_kind]
 
     print(shape_kind2area)
 
@@ -2221,13 +2221,13 @@ def rps_divider_contain_2_3_notes(midipath,outpath=None,need_log = False,div_nee
     # [5]proccess each phrase 
     if algorithm == 'DP':
         for i,ph in enumerate(phrase):
-            rps_log += f'\n### Div{i} BEGIN ###\n'
+            rpp_log += f'\n### Div{i} BEGIN ###\n'
 
             #
             if len(ph) <= 3:
-                r = RPS(rps=ph)
-                rps_all.append(r)
-                rps_log+=f'{r} Area:{rps2area[(r.start,r.end)]}\n'
+                r = RPP(rpp=ph)
+                rpp_all.append(r)
+                rpp_log+=f'{r} Area:{rpp2area[(r.start,r.end)]}\n'
                 continue
 
 
@@ -2237,21 +2237,21 @@ def rps_divider_contain_2_3_notes(midipath,outpath=None,need_log = False,div_nee
             dp.append(-1000)
             part.append([1])
             ## 1
-            initial_rps_0_1 = RPS(rps=[ph[0],ph[1]])
-            area2 = rps2area[(initial_rps_0_1.start,initial_rps_0_1.end)]
+            initial_rpp_0_1 = RPP(rpp=[ph[0],ph[1]])
+            area2 = rpp2area[(initial_rpp_0_1.start,initial_rpp_0_1.end)]
             dp.append(area2)
             part.append([2])
             ## 2
-            initial_rps_0_1_2 = RPS(rps = [ph[0],ph[1],ph[2]])
-            area3 = rps2area[(initial_rps_0_1_2.start,initial_rps_0_1_2.end)]
+            initial_rpp_0_1_2 = RPP(rpp = [ph[0],ph[1],ph[2]])
+            area3 = rpp2area[(initial_rpp_0_1_2.start,initial_rpp_0_1_2.end)]
             dp.append(area3)
             part.append([3])
 
             for i in range(3,len(ph)):
-                cur_rps2 = RPS([ph[i-1],ph[i]])
-                cur_rps3 = RPS([ph[i-2],ph[i-1],ph[i]])
-                area2 = dp[i-2] + rps2area[(cur_rps2.start,cur_rps2.end)]
-                area3 = dp[i-3] + rps2area[(cur_rps3.start,cur_rps3.end)]
+                cur_rpp2 = RPP([ph[i-1],ph[i]])
+                cur_rpp3 = RPP([ph[i-2],ph[i-1],ph[i]])
+                area2 = dp[i-2] + rpp2area[(cur_rpp2.start,cur_rpp2.end)]
+                area3 = dp[i-3] + rpp2area[(cur_rpp3.start,cur_rpp3.end)]
                 if area3 >= area2:
                     dp.append(area3)
                     part.append(part[i-3]+[3])
@@ -2268,26 +2268,26 @@ def rps_divider_contain_2_3_notes(midipath,outpath=None,need_log = False,div_nee
                 index += p
             segments = merge_single_note_segments(segments)
             for segment in segments:
-                r = RPS(segment)
+                r = RPP(segment)
                 r.phrase_index = i
-                rps_all.append(r)
+                rpp_all.append(r)
 
                 key = (segment[0].start, segment[-1].end)
-                area = 1 if len(segment) == 1 else rps2area.get(key, len(segment))
-                rps_log+=f'{r} Area:{area}\n'
+                area = 1 if len(segment) == 1 else rpp2area.get(key, len(segment))
+                rpp_log+=f'{r} Area:{area}\n'
 
     elif algorithm == 'RANDOM':
         for i, ph in enumerate(phrase):
-            rps_log += f'\n### Div{i} BEGIN ###\n'
+            rpp_log += f'\n### Div{i} BEGIN ###\n'
             
             
             if len(ph) <= 3:
-                r = RPS(rps=ph)
+                r = RPP(rpp=ph)
                 r.phrase_index = i
-                rps_all.append(r)
+                rpp_all.append(r)
                 key = (ph[0].start, ph[-1].end)
-                area = 1 if len(ph) == 1 else rps2area.get(key, len(ph))
-                rps_log += f'{r} Area:{area}\n'
+                area = 1 if len(ph) == 1 else rpp2area.get(key, len(ph))
+                rpp_log += f'{r} Area:{area}\n'
                 continue
             
             part = []
@@ -2307,44 +2307,44 @@ def rps_divider_contain_2_3_notes(midipath,outpath=None,need_log = False,div_nee
             
             segments = merge_single_note_segments(segments)
             for segment in segments:
-                r = RPS(segment)
+                r = RPP(segment)
                 r.phrase_index = i
-                rps_all.append(r)
+                rpp_all.append(r)
                 key = (segment[0].start, segment[-1].end)
-                area = 1 if len(segment) == 1 else rps2area.get(key, len(segment))
-                rps_log += f'{r} Area:{area}\n'
+                area = 1 if len(segment) == 1 else rpp2area.get(key, len(segment))
+                rpp_log += f'{r} Area:{area}\n'
 
     key_info = detect_song_key(midi_obj, note_all)
-    annotate_cadence_tags(rps_all, key_info)
+    annotate_cadence_tags(rpp_all, key_info)
 
 
-    for i,each in enumerate(rps_all):
+    for i,each in enumerate(rpp_all):
         if i == 0:
-            for note in each.rps:
+            for note in each.rpp:
                 note.velocity = 60
         else:
             velo = 60
-            if rps_all[i-1].rps[0].velocity == 60:
+            if rpp_all[i-1].rpp[0].velocity == 60:
                 velo = 120
-            for note in each.rps:
+            for note in each.rpp:
                 note.velocity = velo
 
    
     midi_obj.instruments[0].notes.clear()
-    for each in rps_all:
-        for note in each.rps:
+    for each in rpp_all:
+        for note in each.rpp:
             midi_obj.instruments[0].notes.append(note)
 
     # [8]log
     if need_log == True:
         path = outpath if outpath != None else midipath
-        rps_log_path = os.path.join(os.path.dirname(path),'rps_log.txt')
+        rpp_log_path = os.path.join(os.path.dirname(path),'rpp_log.txt')
         note_log_path = os.path.join(os.path.dirname(path),'note_log.txt')
         weight_log_path = os.path.join(os.path.dirname(path),'weight_log.txt')
 
-        # rps_log
-        with open(rps_log_path,'a') as f:
-            f.write(rps_log)
+        # rpp_log
+        with open(rpp_log_path,'a') as f:
+            f.write(rpp_log)
 
         # note_log
         for i,ph in enumerate(phrase):
@@ -2358,9 +2358,9 @@ def rps_divider_contain_2_3_notes(midipath,outpath=None,need_log = False,div_nee
         for i, ph in enumerate(phrase):
             weight_log+= f'\n### Div{i} ###\n'
 
-            for rps in rps4detect:
-                if rps.start>=ph[0].start and rps.end <=ph[-1].end:
-                    weight_log += f'{rps} Area:{rps2area[(rps.start, rps.end)]:<2} Kind:{str(rps.shape_and_kind[-1])}\n'
+            for rpp in rpp4detect:
+                if rpp.start>=ph[0].start and rpp.end <=ph[-1].end:
+                    weight_log += f'{rpp} Area:{rpp2area[(rpp.start, rpp.end)]:<2} Kind:{str(rpp.shape_and_kind[-1])}\n'
         with open(weight_log_path,'a') as f:
             f.write(weight_log)
 
@@ -2371,19 +2371,19 @@ def rps_divider_contain_2_3_notes(midipath,outpath=None,need_log = False,div_nee
     else:
         midi_obj.dump(outpath)
 
-    return note_all,rps_all
+    return note_all,rpp_all
 
 def midi_graph_evaluation(vertex,edge,midipath):
 
     # Default Container
-    rps_raw = []
-    rps_need_check = []
+    rpp_raw = []
+    rpp_need_check = []
     note_all = []
-    rps2area = collections.defaultdict(int)  # {(rps.start,rps.end) : area}
+    rpp2area = collections.defaultdict(int)  # {(rpp.start,rpp.end) : area}
 
 
     midi_obj = miditoolkit.MidiFile(midipath)
-    m = RPS_Detection(midi_path=midipath)
+    m = RPP_Detection(midi_path=midipath)
     skeleton_bool, syncopation_bool = m.get_note_typeof_skeleton_syncopation()
 
     assert len(midi_obj.instruments[0].notes) == len(skeleton_bool) and len(skeleton_bool) == len(syncopation_bool), \
@@ -2429,31 +2429,31 @@ def midi_graph_evaluation(vertex,edge,midipath):
                 each.is_break_note = True
                 break
 
-    # [1] rps
+    # [1] rpp
     index = 0
     ryhthm_structure2num = {0:2,1:3,2:2,3:3,4:3,5:1,6:1}
     for v in vertex:
-        if v[0:3] != 'RPS':
+        if v[0:3] != 'RPP':
             continue
-        rps_raw.append(v)
-        rps_lenth = ryhthm_structure2num[int(v.split('_')[1])]
-        rps_need_check.append(RPS(note_all[index:index+rps_lenth]))
-        index += rps_lenth
+        rpp_raw.append(v)
+        rpp_lenth = ryhthm_structure2num[int(v.split('_')[1])]
+        rpp_need_check.append(RPP(note_all[index:index+rpp_lenth]))
+        index += rpp_lenth
 
-    # [2] rps_score
-    total_num = len(rps_raw)
-    matching_rps_num = 0
-    print('**',len(rps_raw),len(rps_need_check))
-    for i in range(len(rps_raw)):
+    # [2] rpp_score
+    total_num = len(rpp_raw)
+    matching_rpp_num = 0
+    print('**',len(rpp_raw),len(rpp_need_check))
+    for i in range(len(rpp_raw)):
         
-            matching_rps_num+=1
-    rps_matching_score = round(matching_rps_num / total_num,2)
-    print('rps_matching_score',rps_matching_score)
+            matching_rpp_num+=1
+    rpp_matching_score = round(matching_rpp_num / total_num,2)
+    print('rpp_matching_score',rpp_matching_score)
 
     # [3] edge_score
     print('vertex',vertex)
     print('edge',edge)
-    new_seq,new_vertex,new_edge = graph_token_RPS_only(rps_list=rps_need_check)
+    new_seq,new_vertex,new_edge = graph_token_RPP_only(rpp_list=rpp_need_check)
     print('new_vertex',new_vertex)
     print('new_edge',new_edge)
 
@@ -2461,10 +2461,10 @@ def midi_graph_evaluation(vertex,edge,midipath):
     matching_edge_num = 0
 
 
-    old_rps_index = [i for i in range(0,len(vertex)) if 'RPS' in vertex[i]]
-    new_rps_index = [i for i in range(0,len(new_vertex)) if 'RPS' in new_vertex[i]]
+    old_rpp_index = [i for i in range(0,len(vertex)) if 'RPP' in vertex[i]]
+    new_rpp_index = [i for i in range(0,len(new_vertex)) if 'RPP' in new_vertex[i]]
 
-    for idx1,idx2 in zip(old_rps_index,new_rps_index):
+    for idx1,idx2 in zip(old_rpp_index,new_rpp_index):
         # old
         edge_old = [e for e in edge if e[0]==idx1]
         edge_old_str = [(vertex[e[0]],vertex[e[1]],e[2]) for e in edge_old]
@@ -2484,11 +2484,11 @@ def midi_graph_evaluation(vertex,edge,midipath):
 
 if __name__ == '__main__':
 
-    # # ----------------------- Split Rps ---------------------------
+    # # ----------------------- Split Rpp ---------------------------
     # file_list = os.listdir('./ZhPop 2')
     # for f in file_list:
     #     midipath = os.path.join('./ZhPop 2',f)
-    #     split_rps_Zhpop(midipath)
+    #     split_rpp_Zhpop(midipath)
 
     # # ----------------------- Split RP v1 -----------------------------
     # midi_path = './melody/0.1.mid'
@@ -2521,18 +2521,18 @@ if __name__ == '__main__':
     #
     #     print(f"-----------------------\n#{path} Begin!")
     #     midipath = os.path.join(dataroot,path)
-    #     seq,vertex,edge = graph_token_RPS_only(midipath=midipath,rps_outdir=f'{data_type}/check_file/rps')
+    #     seq,vertex,edge = graph_token_RPP_only(midipath=midipath,rpp_outdir=f'{data_type}/check_file/rpp')
     #     print_graph(vertex,edge,file_index=i,outpath=graph_path)
     #     print_graph_check(seq=seq,vertex=vertex,edge=edge,filepath=graph_check_path,file_index=i,input_file=path)
     #     print(f"#{path} Success!")
 
 
-    # # ----------------------- rps_split -----------------------------------
+    # # ----------------------- rpp_split -----------------------------------
 
     # input_root = './data/ZhPop/quantify'
-    # output_root = './data/ZhPop/rps_dp'
+    # output_root = './data/ZhPop/rpp_dp'
     #
-    # for f in [os.path.join(output_root,x) for x in ['note_log.txt','rps_log.txt','weight_log.txt']]:
+    # for f in [os.path.join(output_root,x) for x in ['note_log.txt','rpp_log.txt','weight_log.txt']]:
     #     if os.path.exists(f):
     #         os.remove(f)
     #
@@ -2545,14 +2545,14 @@ if __name__ == '__main__':
     #
     #     midipath = os.path.join(input_root,f)
     #     outpath = os.path.join(output_root,f)
-    #     rps_divider(midipath,outpath,algorithm='DP')
+    #     rpp_divider(midipath,outpath,algorithm='DP')
 
-    # # ----------------------- rps_overlap_ratio -----------------------------------
-    # rawroot = './data/ZhPop/with_rps_marker'
-    # tgtroot = './data/ZhPop/rps_greedy'
-    # rps_split_accuracy(rawroot=rawroot,tgtroot=tgtroot,logpath=tgtroot+'/accuracy.log')
+    # # ----------------------- rpp_overlap_ratio -----------------------------------
+    # rawroot = './data/ZhPop/with_rpp_marker'
+    # tgtroot = './data/ZhPop/rpp_greedy'
+    # rpp_split_accuracy(rawroot=rawroot,tgtroot=tgtroot,logpath=tgtroot+'/accuracy.log')
 
     # # ----------------------- midi_graph_evaluation -----------------------------------
     midipath = '0.mid'
-    seq,vertex,edge = graph_token_RPS_only(midipath=midipath)
+    seq,vertex,edge = graph_token_RPP_only(midipath=midipath)
     midi_graph_evaluation(vertex=vertex,edge=edge,midipath=midipath)
