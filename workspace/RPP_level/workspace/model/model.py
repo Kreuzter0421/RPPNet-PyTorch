@@ -352,31 +352,6 @@ class RPPTransformer(nn.Module):
         return shifted
 
 
-    def _get_edge_from_adj_batch(self,adj, transform=False):
-        '''
-
-        return:
-            edges : list
-            edge : 2 X M
-        '''
-
-        edges = []
-
-        for b in range(adj.shape[0]):
-            sub_adj = adj[b]
-
-            # index
-            src, dst = torch.where(sub_adj > 0)
-
-            # stack
-            edge = torch.stack((src, dst), dim=1).to(adj.device)
-
-            if transform:
-                edges.append(edge.t().contiguous())
-            else:
-                edges.append(edge)
-
-        return edges
 
 
 
@@ -537,81 +512,8 @@ class RPPTransformer(nn.Module):
         denom = edge_mask_float.sum() + 1e-6
         return loss_total / denom
 
-    def _feature_consistency_loss(self, predicts, mask, adj, cfg):
-        if adj is None or mask is None:
-            return predicts[0].new_tensor(0.0)
+    
 
-        rp_idx = self.feature_name_to_idx.get('rhythm_pattern')
-        mc_idx = self.feature_name_to_idx.get('melody_contour')
-        if rp_idx is None and mc_idx is None:
-            return predicts[0].new_tensor(0.0)
-
-        mask_bool = mask > 0.5
-        seq_len = adj.shape[1]
-        pair_mask = (mask_bool.unsqueeze(1) & mask_bool.unsqueeze(2))
-        lower = torch.tril(torch.ones(seq_len, seq_len, device=adj.device), diagonal=-1).bool()
-        pair_mask = pair_mask & lower.unsqueeze(0)
-
-        adj_types = torch.round(adj).long()
-        rp_edges = ((adj_types == 1) | (adj_types == 3)) & pair_mask
-        mc_edges = ((adj_types == 2) | (adj_types == 3)) & pair_mask
-
-        total = predicts[0].new_tensor(0.0)
-        total_weight = 0.0
-        rp_weight = float(cfg.get('rp_weight', 1.0))
-        mc_weight = float(cfg.get('mc_weight', 1.0))
-
-        if rp_idx is not None and rp_edges.any() and rp_weight > 0:
-            rp_probs = F.softmax(predicts[rp_idx], dim=-1)
-            total = total + rp_weight * self._pairwise_distribution_loss(rp_probs, rp_edges)
-            total_weight += rp_weight
-
-        if mc_idx is not None and mc_edges.any() and mc_weight > 0:
-            mc_probs = F.softmax(predicts[mc_idx], dim=-1)
-            total = total + mc_weight * self._pairwise_distribution_loss(mc_probs, mc_edges)
-            total_weight += mc_weight
-
-        if total_weight == 0:
-            return predicts[0].new_tensor(0.0)
-        return total / total_weight
-
-    def _pairwise_distribution_loss(self, probs, mask):
-        diff = (probs.unsqueeze(2) - probs.unsqueeze(1)).pow(2).sum(dim=-1)
-        weights = mask.float()
-        denom = weights.sum()
-        if denom <= 0:
-            return probs.new_tensor(0.0)
-        return (diff * weights).sum() / (denom + 1e-6)
-
-    def _directed_cadence_loss(self, predicts, mask, adj, cfg):
-        idx = self.feature_name_to_idx.get('cadence_tag')
-        if idx is None:
-            return predicts[0].new_tensor(0.0)
-
-        logits = predicts[idx]
-        seq_len = logits.shape[1]
-        if seq_len < 2:
-            return predicts[0].new_tensor(0.0)
-
-        dir_threshold = float(cfg.get('dir_threshold', 1.05))
-        incoming = (adj[:, :-1, 1:] >= dir_threshold)
-        has_directed = incoming.any(dim=1)
-
-        cadence_mask = torch.zeros_like(mask)
-        cadence_mask[:, :-1] = has_directed.float()
-        cadence_mask = cadence_mask * mask
-        total = cadence_mask.sum()
-        if total <= 0:
-            return predicts[0].new_tensor(0.0)
-
-        log_probs = F.log_softmax(logits, dim=-1)
-        success_values = cfg.get('success_values', DEFAULT_SUCCESS_CADENCE)
-        valid_idx = [val for val in success_values if val < log_probs.shape[-1]]
-        if not valid_idx:
-            return predicts[0].new_tensor(0.0)
-
-        success_logprob = torch.logsumexp(log_probs[..., valid_idx], dim=-1)
-        return -(success_logprob * cadence_mask).sum() / (total + 1e-6)
 
     def _bar_monotonic_loss(self, predicts, mask, cfg):
         idx = self.feature_name_to_idx.get('bar')
@@ -634,87 +536,8 @@ class RPPTransformer(nn.Module):
         violations = F.relu(-diffs) * pair_mask
         return violations.sum() / (pair_mask.sum() + 1e-6)
 
-    def _edge_ranking_loss(self, raw_feats, mask, adj, cfg):
-        if raw_feats is None or adj is None or mask is None:
-            return raw_feats.new_tensor(0.0) if raw_feats is not None else adj.new_tensor(0.0)
+   
 
-        repr_tensor = self._build_feature_repr(raw_feats, cfg)
-        if repr_tensor is None:
-            return raw_feats.new_tensor(0.0)
-
-        device = raw_feats.device
-        seq_len = repr_tensor.shape[1]
-        mask_bool = mask > 0.5
-        pair_mask = (mask_bool.unsqueeze(1) & mask_bool.unsqueeze(2)).float()
-        weights = adj * pair_mask
-        eye = torch.eye(seq_len, device=device).unsqueeze(0)
-        weights = weights * (1 - eye)
-
-        high_threshold = float(cfg.get('high_threshold', 0.8))
-        low_threshold = float(cfg.get('low_threshold', 0.3))
-        high_mask = weights >= high_threshold
-        low_mask = (weights > 0) & (weights <= low_threshold)
-
-        diff_matrix = (repr_tensor.unsqueeze(2) - repr_tensor.unsqueeze(1)).abs().mean(dim=-1)
-        margin = float(cfg.get('margin', 0.05))
-        max_pairs = max(1, int(cfg.get('max_pairs', 128)))
-
-        total = raw_feats.new_tensor(0.0)
-        pair_count = 0
-        batch_size = raw_feats.shape[0]
-
-        for b in range(batch_size):
-            anchor_indices = torch.nonzero(mask_bool[b], as_tuple=False).view(-1)
-            if anchor_indices.numel() == 0:
-                continue
-            for anchor in anchor_indices.tolist():
-                high_candidates = torch.nonzero(high_mask[b, anchor], as_tuple=False).view(-1)
-                low_candidates = torch.nonzero(low_mask[b, anchor], as_tuple=False).view(-1)
-                if high_candidates.numel() == 0 or low_candidates.numel() == 0:
-                    continue
-
-                hi_idx = high_candidates[torch.randint(high_candidates.shape[0], (1,), device=high_candidates.device)].item()
-                lo_idx = low_candidates[torch.randint(low_candidates.shape[0], (1,), device=low_candidates.device)].item()
-
-                d_high = diff_matrix[b, anchor, hi_idx]
-                d_low = diff_matrix[b, anchor, lo_idx]
-                total = total + F.relu(margin + d_high - d_low)
-                pair_count += 1
-                if pair_count >= max_pairs:
-                    break
-            if pair_count >= max_pairs:
-                break
-
-        if pair_count == 0:
-            return raw_feats.new_tensor(0.0)
-
-        return total / pair_count
-
-    def _contrastive_loss(self, hidden, mask, adj, cfg):
-        if hidden is None or mask is None or adj is None:
-            return hidden.new_tensor(0.0) if hidden is not None else adj.new_tensor(0.0)
-
-        seq_len = hidden.shape[1]
-        mask_bool = mask > 0.5
-        pair_mask = mask_bool.unsqueeze(1) & mask_bool.unsqueeze(2)
-
-        eye = torch.eye(seq_len, device=hidden.device).unsqueeze(0).bool()
-        pos_threshold = float(cfg.get('pos_threshold', 0.8))
-        adj_slice = adj
-        pos_mask = (adj_slice >= pos_threshold) & pair_mask & (~eye)
-        pos_count = pos_mask.sum()
-        if pos_count == 0:
-            return hidden.new_tensor(0.0)
-
-        temperature = float(cfg.get('temperature', 0.5))
-        norm_hidden = F.normalize(hidden, dim=-1)
-        sim = torch.matmul(norm_hidden, norm_hidden.transpose(1, 2)) / max(temperature, 1e-3)
-
-        valid_pairs = pair_mask & (~eye)
-        sim = sim.masked_fill(~valid_pairs, -1e9)
-        log_probs = sim - torch.logsumexp(sim, dim=-1, keepdim=True)
-
-        return -(log_probs[pos_mask].mean())
 
     def _build_feature_repr(self, raw_feats, cfg):
         feature_names = cfg.get('feature_names') or self.feature_consistency_cfg.get('feature_names') or self.rpp_feature_selected

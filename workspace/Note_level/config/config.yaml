@@ -7,7 +7,7 @@ gpuID: 0
 
 # model save path
 model_save_dir : '../saved_model'
-best_model_path : '../saved_model/4-29-13-46/epoch_0.pt'
+best_model_path : '../saved_model/4-29-15-49/epoch_15.pt'
 
 # dataset
 raw_data_path : './graph2seq.pkl'

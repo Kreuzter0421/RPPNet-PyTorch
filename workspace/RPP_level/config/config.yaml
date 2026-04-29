@@ -1,7 +1,7 @@
 # ====== Inference & Global Settings ======
 use_gpu : true
 gpuID : 0
-best_model_path_f : '../saved_model/4-29-13-46/epoch_0.pt'
+best_model_path_f : '../saved_model/4-29-15-44/epoch_19.pt'
 input_lenth : 0 # Input RPP lenth
 output_lenth : 40 # Output RPP lenth
 num_song : 10 # Number of songs

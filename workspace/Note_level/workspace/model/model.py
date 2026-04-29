@@ -132,7 +132,7 @@ class NoteTransformer(nn.Module):
                     
         return expanded_mem, key_padding_mask
 
-    def forward(self,V,tgt,tgt_mask=None,memory_mask=None,adj=None):
+    def forward(self,V,tgt,tgt_mask=None,memory_mask=None):
         # Input:  V [batch,seq,feature] | E [batch,2,index] | target [batch,token_seq,feature] | tgt_mask [batch,token_seq]
         # Output: [batch,token_seq,sum(dim_feature)]
 

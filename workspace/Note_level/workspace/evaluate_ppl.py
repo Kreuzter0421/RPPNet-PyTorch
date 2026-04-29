@@ -77,9 +77,7 @@ def main():
             tgt_gt = batch['note_feat_gt'].to(device)
             tgt_mask = batch['note_mask'].to(device)
             
-            adj = batch.get('adj') if use_graph_modules else None
-            if adj is not None:
-                adj = adj.to(device)
+
                 
             first_note_mask = batch.get('first_note_mask')
             feature_masks = None
@@ -87,7 +85,7 @@ def main():
                 feature_masks = build_feature_loss_masks(cfg['note_feature_selected'], first_note_mask.to(device))
             
             
-            out = model(V=V, tgt=tgt, tgt_mask=tgt_mask, adj=adj)
+            out = model(V=V, tgt=tgt, tgt_mask=tgt_mask)
             
 
             predicts = [out[..., i:j] for i, j in zip(div_index[:-1], div_index[1:])]
