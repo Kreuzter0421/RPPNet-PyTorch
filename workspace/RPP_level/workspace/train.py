@@ -91,7 +91,7 @@ def collate_feature(batch):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Seq2Graph Feature training")
+    parser = argparse.ArgumentParser(description="RPP training")
     parser.add_argument("--config", type=str,
                         default='../config/config.yaml',
                         help="Path to the YAML config file")

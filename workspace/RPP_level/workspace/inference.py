@@ -15,7 +15,7 @@ import torch.nn.functional as F
 
 
 # Parser
-parser = argparse.ArgumentParser(description="s2g inference")
+parser = argparse.ArgumentParser(description="RPP inference")
 parser.add_argument("-e","--expdir", type=str, default="", help="specify RecordDirectory")
 parser.add_argument("-i","--input", type=str, default="auto", help="specify data path")
 parser.add_argument("-o","--output", type=str, default="auto", help="specify save path")
@@ -269,7 +269,7 @@ def apply_forced_classes(final_classes, required_rp, required_mc, forced_indices
 
 
 def main():
-    
+
     # Constrained Decoding
     ENABLE_ANTI_ROLLBACK = True 
     ENABLE_MC_RP_CONSISTENCY = True

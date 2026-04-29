@@ -13,7 +13,7 @@ import miditoolkit
 import argparse
 
 # Parser
-parser = argparse.ArgumentParser(description="s2g inference")
+parser = argparse.ArgumentParser(description="Note inference")
 parser.add_argument("-e","--expdir", type=str, default="", help="specify RecordDirectory")
 parser.add_argument("-i","--input", type=str, default="auto", help="specify data path")
 parser.add_argument("-o","--output", type=str, default="auto", help="specify save path")
