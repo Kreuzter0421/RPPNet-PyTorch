@@ -311,7 +311,7 @@ def main():
     if args.output == 'auto':   
         output_pkl = os.path.join(exp_dir, 'pkl', 'output_note.pkl')
     else:
-        output_pkl = os.path.join(exp_dir,'pkl',f'args.output')
+        output_pkl = os.path.join(exp_dir,'pkl',f'{args.output}')
         
     txt_test = os.path.join(exp_dir, 'pkl', 'output_note_test.txt')
     midi_infer_dir = os.path.join(exp_dir,'midi_inference')
@@ -357,7 +357,6 @@ def main():
     if len(missing_keys) > 0:
         print(f"[Warning] Missing keys in state_dict: {missing_keys}")
         if any("attribute_graph" in k for k in missing_keys):
-             print("[Info] Disabling AttributeGraphModule because weights are missing in checkpoint.")
              if hasattr(model, 'rhythm_idx'): model.rhythm_idx = None
              if hasattr(model, 'melody_idx'): model.melody_idx = None
 

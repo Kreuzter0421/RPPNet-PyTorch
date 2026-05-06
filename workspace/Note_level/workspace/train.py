@@ -68,8 +68,6 @@ def evaluate(e, cfg, model, val_iter, device):
             tgt = batch['note_feat'].to(device)
             tgt_gt = batch['note_feat_gt'].to(device)
             tgt_mask = batch['note_mask'].to(device)
-            if False:
-                adj = None
             first_note_mask = batch.get('first_note_mask')
             feature_masks = None
             if first_note_mask is not None:
@@ -110,8 +108,6 @@ def train(e, cfg, model, optimizer, train_iter, device, scheduler=None):
         tgt = batch['note_feat'].to(device)
         tgt_gt = batch['note_feat_gt'].to(device)
         tgt_mask = batch['note_mask'].to(device)
-        if False:
-            adj = None
         first_note_mask = batch.get('first_note_mask')
         feature_masks = None
         if first_note_mask is not None:
