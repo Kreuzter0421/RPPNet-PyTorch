@@ -113,7 +113,7 @@ class RPPTransformer(nn.Module):
         bool_mask = None if key_mask is None else key_mask > 0.5
 
         raw_feats = tgt.clone()
-        teacher_inputs = self._build_autoregressive_inputs(tgt)
+        teacher_inputs = tgt.clone()
         tgt = self.RPP_embeding(teacher_inputs)
         
         tgt = self.embedding_dropout(tgt)
