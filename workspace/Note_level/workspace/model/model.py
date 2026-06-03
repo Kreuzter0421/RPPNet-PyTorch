@@ -174,7 +174,7 @@ class NoteTransformer(nn.Module):
              if (~expanded_mask).any():
                   use_expanded = True
                   memory = expanded_memory
-                  memory_mask_input = expanded_mask
+                  memory_mask_input = (~expanded_mask).long()
              else:
 
                   pass
