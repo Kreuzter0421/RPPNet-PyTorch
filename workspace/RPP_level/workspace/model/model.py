@@ -165,14 +165,6 @@ class RPPTransformer(nn.Module):
                         tokens = torch.cat([tokens, pad], dim=1)
                     teacher_tokens[feat] = tokens
 
-        def _shift_future(tok):
-            if tok is None:
-                return None
-            future = tok.new_zeros(tok.shape)
-            if tok.shape[1] > 1:
-                future[:, :-1] = tok[:, 1:]
-                future[:, -1] = tok[:, -1] + 16
-            return future
 
         logits_map = {}
 
@@ -199,11 +191,11 @@ class RPPTransformer(nn.Module):
             future_pos_tokens = future_pos_override[:, :seq_len].long()
         elif use_teacher_pos and 'global_pos' in teacher_tokens:
             # Use Teacher Forcing for Delta/Position Context
-            future_pos_tokens = _shift_future(teacher_tokens['global_pos'])
+            future_pos_tokens = teacher_tokens['global_pos']
         elif pos_logits is not None:
              # Use Model Prediction (Autoregressive / Scheduled Sampling)
             cur_pred = torch.argmax(pos_logits, dim=-1)
-            future_pos_tokens = _shift_future(cur_pred)
+            future_pos_tokens = cur_pred
 
         future_pos_emb = None
         if future_pos_tokens is not None and hasattr(self, 'future_pos_embedding'):
