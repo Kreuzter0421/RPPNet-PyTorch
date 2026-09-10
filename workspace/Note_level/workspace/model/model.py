@@ -108,7 +108,7 @@ class NoteTransformer(nn.Module):
 
             start_ticks = bars * bar_ticks + poss * resolution
 
-            dur_ticks = (durs + 1) * resolution 
+            dur_ticks = durs * resolution 
             
             end_ticks = start_ticks + dur_ticks
             
